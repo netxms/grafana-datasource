@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
+  "name": "NetXMS",
+  "id": "radensolutions-netxms-datasource",
+  "metrics": true,
+  "backend": true,
+  "executable": "gpx_net_xms",
+  "info": {
+    "description": "NetXMS datasource for Grafana",
+    "author": {
+      "name": "Raden solutions"
+    },
+    "keywords": ["datasource", "netxms", "network", "monitoring"],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "routes": [
+    {
+      "path": "alarms",
+      "method": "GET"
+    }
+  ],
+  "dependencies": {
+    "grafanaDependency": ">=10.4.0",
+    "plugins": []
+  }
+}
