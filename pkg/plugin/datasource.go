@@ -70,6 +70,18 @@ type queryModel struct {
 	DciId          string `json:"dciId"`
 }
 
+type alarmResponse struct {
+	Id         int32     `json:"Id"`
+	Severity   string    `json:"Severity"`
+	State      string    `json:"State"`
+	Source     string    `json:"Source"`
+	Message    string    `json:"Message"`
+	Count      int32     `json:"Count"`
+	AckBy      string    `json:"Ack/Resolve by"`
+	Created    time.Time `json:"Created"`
+	LastChange time.Time `json:"Last Change"`
+}
+
 type dciValueResponse struct {
 	Description string `json:"description"`
 	UnitName    string `json:"unitName"`
@@ -120,11 +132,6 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
 	}
 
-	// create data frame response.
-	// For an overview on data frames and how grafana handles them:
-	// https://grafana.com/developers/plugin-tools/introduction/data-frames
-	frame := data.NewFrame("response")
-
 	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: 10 * time.Second,
@@ -173,73 +180,50 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 	}
 	//log.Printf("#### write response %s", string(body))
 
-	// Example: [{"id":1,"name":"Alarm1","severity":3}, {"id":2,"name":"Alarm2","severity":2}]
-	var alarms []map[string]interface{}
+	var alarms []alarmResponse
 	if err := json.Unmarshal(body, &alarms); err != nil {
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err.Error()))
 	}
 
-	// Collect all unique field names
-	fieldNames := make(map[string]struct{})
-	for _, alarm := range alarms {
-		for k := range alarm {
-			fieldNames[k] = struct{}{}
-		}
-	}
+	// Create data frame
+	frame := data.NewFrame("alarms")
 
-	// Prepare fields for the frame
-	fieldOrder := make([]string, 0, len(fieldNames))
-	for k := range fieldNames {
-		fieldOrder = append(fieldOrder, k)
-	}
+	// Prepare arrays for each field
+	ids := make([]int32, len(alarms))
+	severities := make([]string, len(alarms))
+	states := make([]string, len(alarms))
+	sources := make([]string, len(alarms))
+	messages := make([]string, len(alarms))
+	counts := make([]int32, len(alarms))
+	ackBy := make([]string, len(alarms))
+	created := make([]time.Time, len(alarms))
+	lastChange := make([]time.Time, len(alarms))
 
-	fieldData := make(map[string][]interface{})
-	for _, name := range fieldOrder {
-		fieldData[name] = make([]interface{}, 0, len(alarms))
-	}
-
-	// Fill field data
-	for _, alarm := range alarms {
-		for _, name := range fieldOrder {
-			fieldData[name] = append(fieldData[name], alarm[name])
-		}
+	// Fill arrays with data
+	for i, alarm := range alarms {
+		ids[i] = alarm.Id
+		severities[i] = alarm.Severity
+		states[i] = alarm.State
+		sources[i] = alarm.Source
+		messages[i] = alarm.Message
+		counts[i] = alarm.Count
+		ackBy[i] = alarm.AckBy
+		created[i] = alarm.Created
+		lastChange[i] = alarm.LastChange
 	}
 
 	// Add fields to the frame
-	for _, name := range fieldOrder {
-		// Convert values to appropriate type based on the first value
-		if len(fieldData[name]) > 0 {
-			switch v := fieldData[name][0].(type) {
-			case float64:
-				values := make([]float64, len(fieldData[name]))
-				for i, val := range fieldData[name] {
-					if f, ok := val.(float64); ok {
-						values[i] = f
-					}
-				}
-				frame.Fields = append(frame.Fields, data.NewField(name, nil, values))
-			case string:
-				values := make([]string, len(fieldData[name]))
-				for i, val := range fieldData[name] {
-					if s, ok := val.(string); ok {
-						values[i] = s
-					}
-				}
-				frame.Fields = append(frame.Fields, data.NewField(name, nil, values))
-			case bool:
-				values := make([]bool, len(fieldData[name]))
-				for i, val := range fieldData[name] {
-					if b, ok := val.(bool); ok {
-						values[i] = b
-					}
-				}
-				frame.Fields = append(frame.Fields, data.NewField(name, nil, values))
-			default:
-				// Skip unsupported types
-				log.Printf("Skipping field %s with unsupported type %T", name, v)
-			}
-		}
-	}
+	frame.Fields = append(frame.Fields,
+		data.NewField("Id", nil, ids),
+		data.NewField("Severity", nil, severities),
+		data.NewField("State", nil, states),
+		data.NewField("Source", nil, sources),
+		data.NewField("Message", nil, messages),
+		data.NewField("Count", nil, counts),
+		data.NewField("Ack/Resolve by", nil, ackBy),
+		data.NewField("Created", nil, created),
+		data.NewField("Last Change", nil, lastChange),
+	)
 
 	defer result.Body.Close()
 
