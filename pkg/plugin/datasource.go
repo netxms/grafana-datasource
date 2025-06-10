@@ -50,9 +50,9 @@ func NewDatasource(_ context.Context, _ backend.DataSourceInstanceSettings) (ins
 	ds.resourceHandler = httpadapter.New(mux)
 	queryTypeMux := datasource.NewQueryTypeMux()
 	queryTypeMux.HandleFunc("alarms", ds.handleAlarmQuery)
-	queryTypeMux.HandleFunc("dciValues", ds.handledciValues)
-	//queryTypeMux.HandleFunc("summaryTables", ds.handleLogsQuery)
-	//queryTypeMux.HandleFunc("objectQueries", ds.handleTracesQuery)
+	queryTypeMux.HandleFunc("dciValues", ds.handleDciValues)
+	//queryTypeMux.HandleFunc("summaryTables", ds.handleSummaryTableQuery)
+	//queryTypeMux.HandleFunc("objectQueries", ds.handleObjectQueryQuery)
 	//TODO: should I do fallback? queryTypeMux.HandleFunc("", ds.handleQueryFallback)
 	ds.queryHandler = queryTypeMux
 	return ds, nil
@@ -178,7 +178,11 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 	if err != nil {
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed read response: %v", err.Error()))
 	}
-	//log.Printf("#### write response %s", string(body))
+
+	// Check for error status codes
+	if result.StatusCode == http.StatusUnauthorized {
+		return backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
+	}
 
 	var alarms []alarmResponse
 	if err := json.Unmarshal(body, &alarms); err != nil {
@@ -381,7 +385,7 @@ func (ds *Datasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
 	ds.handleQuery(path, "GET", rw, req)
 }
 
-func (ds *Datasource) handledciValues(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+func (ds *Datasource) handleDciValues(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
 	for _, q := range req.Queries {
 		var qm queryModel
