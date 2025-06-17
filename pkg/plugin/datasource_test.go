@@ -64,7 +64,7 @@ func TestQueryData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ds, ok := instance.(*Datasource)
+	ds, ok := instance.(*NetXMSDatasource)
 	if !ok {
 		t.Fatal("Failed to type assert instance to *Datasource")
 	}

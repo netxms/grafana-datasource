@@ -47,9 +47,18 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         }
         break;
       case 'objectQueries':
-        // For object queries, sourceObjectId is optional but objectQueryId is required
+        // For object queries, objectQueryId is required and queryParameters should be valid JSON
         if (query.objectQueryId) {
-          onRunQuery();
+          if (query.queryParameters) {
+            try {
+              JSON.parse(query.queryParameters);
+              onRunQuery();
+            } catch (err) {
+              // Invalid JSON, don't run the query
+            }
+          } else {
+            onRunQuery();
+          }
         }
         break;
       case 'dciValues':
@@ -107,10 +116,12 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         case 'objectQueries':
           // Load object query list
           datasource.getObjectQueryObjectList().then(response => {
+            console.log('Object query List Response:', response);
             const formattedOptions = response.objects.map((item) => ({
               label: item.name,
               value: item.id.toString(),
             }));
+            console.log('Formatted object query Options:', formattedOptions);
             setObjectList(formattedOptions);
             setIsLoadingObjects(false);
           });
@@ -190,10 +201,10 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         <InlineField label="Summary table" labelWidth={16}>
           <Combobox
             value={query.summaryTableId}
-            onChange={ (v) => { onChange({ ...query, sourceObjectId: v.value }); handleOnRunQuery(); }}       
+            onChange={ (v) => { onChange({ ...query, summaryTableId: v.value }); handleOnRunQuery(); }}       
             options={summaryTableList}
             loading={isLoadingSummaryTable}
-            placeholder="Symmary table"
+            placeholder="Summary table"
             width={32}
           />
         </InlineField>
@@ -209,6 +220,23 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
               loading={isLoadingObjectQueries}
               placeholder="Select query"
               width={32}
+            />
+          </InlineField>
+          <InlineField label="Query parameters" labelWidth={16}>
+            <textarea
+              value={query.queryParameters || ''}
+              onChange={(e) => { 
+                try {
+                  JSON.parse(e.target.value); // Just validate JSON
+                  onChange({ ...query, queryParameters: e.target.value }); 
+                  handleOnRunQuery();
+                } catch (err) {
+                  // If JSON is invalid, just update the value without running the query
+                  onChange({ ...query, queryParameters: e.target.value });
+                }
+              }}
+              placeholder="Enter query parameters as JSON array of key-value pairs"
+              style={{ width: '32em', height: '5em' }}
             />
           </InlineField>
         </>

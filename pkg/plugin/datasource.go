@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,34 +24,36 @@ import (
 // backend.CheckHealthHandler interfaces. Plugin should not implement all these
 // interfaces - only those which are required for a particular task.
 var (
-	_ backend.QueryDataHandler      = (*Datasource)(nil)
-	_ backend.CheckHealthHandler    = (*Datasource)(nil)
-	_ backend.CallResourceHandler   = (*Datasource)(nil)
-	_ instancemgmt.InstanceDisposer = (*Datasource)(nil)
+	_ backend.QueryDataHandler      = (*NetXMSDatasource)(nil)
+	_ backend.CheckHealthHandler    = (*NetXMSDatasource)(nil)
+	_ backend.CallResourceHandler   = (*NetXMSDatasource)(nil)
+	_ instancemgmt.InstanceDisposer = (*NetXMSDatasource)(nil)
 )
 
-// Datasource is an example datasource which can respond to data queries, reports
-// its health and has streaming skills.
-type Datasource struct {
+// NetXMSDatasource is datasource which can respond to data queries, reports
+// its health.
+type NetXMSDatasource struct {
 	queryHandler    backend.QueryDataHandler
 	resourceHandler backend.CallResourceHandler
 }
 
-// NewDatasource creates a new datasource instance.
+// Create new NetXMS datashource instance
 func NewDatasource(_ context.Context, _ backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	ds := &Datasource{}
+	ds := &NetXMSDatasource{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/alarmObjects", ds.handleAlarmObjects)
 	mux.HandleFunc("/dciObjects", ds.handleDciObjects)
+	mux.HandleFunc("/objectQueries", ds.handleObjectQueries)
 	mux.HandleFunc("/objectQueryObjects", ds.handleObjectQueryObjects)
 	mux.HandleFunc("/summaryTableObjects", ds.handleSummaryTableObjects)
+	mux.HandleFunc("/summaryTables", ds.handleSummaryTables)
 	mux.HandleFunc("/dcis", ds.handleDciList)
 	ds.resourceHandler = httpadapter.New(mux)
 	queryTypeMux := datasource.NewQueryTypeMux()
 	queryTypeMux.HandleFunc("alarms", ds.handleAlarmQuery)
 	queryTypeMux.HandleFunc("dciValues", ds.handleDciValues)
-	//queryTypeMux.HandleFunc("summaryTables", ds.handleSummaryTableQuery)
-	//queryTypeMux.HandleFunc("objectQueries", ds.handleObjectQueryQuery)
+	queryTypeMux.HandleFunc("summaryTables", ds.handleSummaryTableQuery)
+	queryTypeMux.HandleFunc("objectQueries", ds.handleObjectQueryQuery)
 	//TODO: should I do fallback? queryTypeMux.HandleFunc("", ds.handleQueryFallback)
 	ds.queryHandler = queryTypeMux
 	return ds, nil
@@ -61,9 +62,7 @@ func NewDatasource(_ context.Context, _ backend.DataSourceInstanceSettings) (ins
 // Dispose here tells plugin SDK that plugin wants to clean up resources when a new instance
 // created. As soon as datasource settings change detected by SDK old datasource instance will
 // be disposed and a new one will be created using NewSampleDatasource factory function.
-func (d *Datasource) Dispose() {
-	// Clean up datasource instance resources.
-}
+func (d *NetXMSDatasource) Dispose() {}
 
 type queryModel struct {
 	SourceObjectId string `json:"sourceObjectId"`
@@ -91,7 +90,14 @@ type dciValueResponse struct {
 	} `json:"values"`
 }
 
-func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+type tableQueryConfig struct {
+	url        string
+	frameName  string
+	required   map[string]string
+	formatBody func(map[string]interface{}) map[string]interface{}
+}
+
+func (d *NetXMSDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	return d.queryHandler.QueryData(ctx, req)
 }
 
@@ -99,51 +105,39 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 // req contains the queries []DataQuery (where each query contains RefID as a unique identifier).
 // The QueryDataResponse contains a map of RefID to the response for each query, and each response
 // contains Frames ([]*Frame).
-func (d *Datasource) handleAlarmQuery(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	// create response struct
+func (d *NetXMSDatasource) handleAlarmQuery(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
 
-	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
-		// Unmarshal the JSON into our queryModel.
 		var qm queryModel
-
 		err := json.Unmarshal(q.JSON, &qm)
-
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("json unmarshal: %v", err.Error()))
 			continue
 		}
 
-		res := d.query(ctx, req.PluginContext, q, qm.SourceObjectId)
-
-		// save the response in a hashmap
-		// based on with RefID as identifier
+		res := d.query(ctx, req.PluginContext, qm.SourceObjectId)
 		response.Responses[q.RefID] = res
 	}
 
 	return response, nil
 }
 
-func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery, rootObjectId string) backend.DataResponse {
+func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, rootObjectId string) backend.DataResponse {
 	var response backend.DataResponse
 	config, err := models.LoadPluginSettings(*pCtx.DataSourceInstanceSettings)
 	if err != nil {
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
 	}
 
-	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	// Create request to status endpoint
 	statusURL := fmt.Sprintf("%s%s", config.ServerAddress, "/v1/grafana/infinity/alarms")
 
-	// Prepare JSON body with rootObjectId if not empty
 	var bodyBytes []byte
 	if rootObjectId != "" {
-		// Convert rootObjectId to number
 		rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
 		if err != nil {
 			return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("invalid rootObjectId: %v", err.Error()))
@@ -164,11 +158,8 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err.Error()))
 	}
 	request.Header.Set("Content-Type", "application/json")
-
-	// Add API key to headers
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
 
-	// Make the request
 	result, err := client.Do(request)
 	if err != nil {
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err.Error()))
@@ -179,7 +170,6 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed read response: %v", err.Error()))
 	}
 
-	// Check for error status codes
 	if result.StatusCode == http.StatusUnauthorized {
 		return backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
 	}
@@ -189,10 +179,8 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err.Error()))
 	}
 
-	// Create data frame
 	frame := data.NewFrame("alarms")
 
-	// Prepare arrays for each field
 	ids := make([]int32, len(alarms))
 	severities := make([]string, len(alarms))
 	states := make([]string, len(alarms))
@@ -203,7 +191,6 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 	created := make([]time.Time, len(alarms))
 	lastChange := make([]time.Time, len(alarms))
 
-	// Fill arrays with data
 	for i, alarm := range alarms {
 		ids[i] = alarm.Id
 		severities[i] = alarm.Severity
@@ -216,7 +203,6 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 		lastChange[i] = alarm.LastChange
 	}
 
-	// Add fields to the frame
 	frame.Fields = append(frame.Fields,
 		data.NewField("Id", nil, ids),
 		data.NewField("Severity", nil, severities),
@@ -230,10 +216,7 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 	)
 
 	defer result.Body.Close()
-
-	// add the frames to the response.
 	response.Frames = append(response.Frames, frame)
-
 	return response
 }
 
@@ -241,7 +224,7 @@ func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query 
 // The main use case for these health checks is the test button on the
 // datasource configuration page which allows users to verify that
 // a datasource is working as expected.
-func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
 	res := &backend.CheckHealthResult{}
 	config, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
 
@@ -263,12 +246,10 @@ func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequ
 		return res, nil
 	}
 
-	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	// Create request to status endpoint
 	statusURL := fmt.Sprintf("%s/v1/status", config.ServerAddress)
 	request, err := http.NewRequest("GET", statusURL, nil)
 	if err != nil {
@@ -277,10 +258,8 @@ func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequ
 		return res, nil
 	}
 
-	// Add API key to headers
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
 
-	// Make the request
 	response, err := client.Do(request)
 	if err != nil {
 		res.Status = backend.HealthStatusError
@@ -289,7 +268,6 @@ func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequ
 	}
 	defer response.Body.Close()
 
-	// Check response status
 	if response.StatusCode != http.StatusOK {
 		res.Status = backend.HealthStatusError
 		res.Message = fmt.Sprintf("Server returned status code: %d (%s)", response.StatusCode, response.Status)
@@ -302,80 +280,77 @@ func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequ
 	}, nil
 }
 
-func (ds *Datasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+func (ds *NetXMSDatasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	return ds.resourceHandler.CallResource(ctx, req, sender)
 }
 
-func (ds *Datasource) handleQuery(url string, method string, rw http.ResponseWriter, req *http.Request) {
-	log.Printf("handleQuery called: url=%s, method=%s", url, method)
+// This method handles all request to get lists of items in format name : id
+func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.ResponseWriter, req *http.Request) {
 	pCtx := backend.PluginConfigFromContext(req.Context())
 	config, err := models.LoadPluginSettings(*pCtx.DataSourceInstanceSettings)
 	if err != nil {
-		log.Printf("failed to load plugin settings: %v", err)
 		http.Error(rw, "failed to load plugin settings", http.StatusInternalServerError)
 		return
 	}
-	// Create HTTP client with timeout
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	// Create request to status endpoint
 	statusURL := fmt.Sprintf("%s%s", config.ServerAddress, url)
-	log.Printf("Loaded config: ServerAddress=%s", statusURL)
 	request, err := http.NewRequest(method, statusURL, nil)
 	if err != nil {
-		log.Printf("failed to create request=%s", statusURL)
 		http.Error(rw, "failed to create request", http.StatusInternalServerError)
 		return
 	}
 
-	// Add API key to headers
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
 
-	// Make the request
 	result, err := client.Do(request)
 	if err != nil {
-		log.Printf("Failed to connect to server: %v", err)
 		http.Error(rw, "failed to connect to server", http.StatusInternalServerError)
 		return
 	}
 
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		log.Printf("failed read response")
 		http.Error(rw, "failed read response", http.StatusInternalServerError)
 		return
 	}
 	rw.Header().Add("Content-Type", "application/json")
-	log.Printf("bodey %s", string(body))
 	_, err = rw.Write(body)
 	if err != nil {
-		log.Printf("failed write response")
 		return
 	}
 	defer result.Body.Close()
 	rw.WriteHeader(http.StatusOK)
 }
 
-func (ds *Datasource) handleAlarmObjects(rw http.ResponseWriter, req *http.Request) {
+func (ds *NetXMSDatasource) handleAlarmObjects(rw http.ResponseWriter, req *http.Request) {
 	ds.handleQuery("/v1/object-list?filter=alarm", "GET", rw, req)
 }
 
-func (ds *Datasource) handleDciObjects(rw http.ResponseWriter, req *http.Request) {
+func (ds *NetXMSDatasource) handleDciObjects(rw http.ResponseWriter, req *http.Request) {
 	ds.handleQuery("/v1/object-list?filter=dci", "GET", rw, req)
 }
 
-func (ds *Datasource) handleSummaryTableObjects(rw http.ResponseWriter, req *http.Request) {
+func (ds *NetXMSDatasource) handleSummaryTables(rw http.ResponseWriter, req *http.Request) {
+	ds.handleQuery("/v1/summary-table-list", "GET", rw, req)
+}
+
+func (ds *NetXMSDatasource) handleSummaryTableObjects(rw http.ResponseWriter, req *http.Request) {
 	ds.handleQuery("/v1/object-list?filter=summary", "GET", rw, req)
 }
 
-func (ds *Datasource) handleObjectQueryObjects(rw http.ResponseWriter, req *http.Request) {
+func (ds *NetXMSDatasource) handleObjectQueries(rw http.ResponseWriter, req *http.Request) {
+	ds.handleQuery("/v1/query-list", "GET", rw, req)
+}
+
+func (ds *NetXMSDatasource) handleObjectQueryObjects(rw http.ResponseWriter, req *http.Request) {
 	ds.handleQuery("/v1/object-list?filter=query", "GET", rw, req)
 }
 
-func (ds *Datasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
-	log.Printf("#### Came to handleDciList")
+func (ds *NetXMSDatasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
 	objectID := req.URL.Query().Get("objectId")
 	if objectID == "" {
 		http.Error(rw, "missing objectId parameter", http.StatusBadRequest)
@@ -385,7 +360,7 @@ func (ds *Datasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
 	ds.handleQuery(path, "GET", rw, req)
 }
 
-func (ds *Datasource) handleDciValues(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
 	for _, q := range req.Queries {
 		var qm queryModel
@@ -400,16 +375,13 @@ func (ds *Datasource) handleDciValues(ctx context.Context, req *backend.QueryDat
 			continue
 		}
 
-		// Create HTTP client with timeout
 		client := &http.Client{
 			Timeout: 10 * time.Second,
 		}
 
-		// Format time range
 		timeFrom := q.TimeRange.From.Format(time.UnixDate)
 		timeTo := q.TimeRange.To.Format(time.UnixDate)
 
-		// Create request URL
 		url := fmt.Sprintf("%s/v1/objects/%s/data-collection/%s/history?timeFrom=%s&timeTo=%s",
 			config.ServerAddress, qm.SourceObjectId, qm.DciId, timeFrom, timeTo)
 
@@ -419,10 +391,8 @@ func (ds *Datasource) handleDciValues(ctx context.Context, req *backend.QueryDat
 			continue
 		}
 
-		// Add API key to headers
 		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
 
-		// Make the request
 		result, err := client.Do(request)
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
@@ -442,10 +412,8 @@ func (ds *Datasource) handleDciValues(ctx context.Context, req *backend.QueryDat
 			continue
 		}
 
-		// Create data frame
 		frame := data.NewFrame(dciData.Description)
 
-		// Add time field
 		times := make([]time.Time, len(dciData.Values))
 		values := make([]float64, len(dciData.Values))
 
@@ -475,4 +443,280 @@ func (ds *Datasource) handleDciValues(ctx context.Context, req *backend.QueryDat
 		}
 	}
 	return response, nil
+}
+
+type orderedMap struct {
+	keys   []string
+	values map[string]interface{}
+}
+
+func decodeOrderedJSON(data []byte) (*orderedMap, error) {
+	om := &orderedMap{
+		keys:   make([]string, 0),
+		values: make(map[string]interface{}),
+	}
+
+	var raw json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if token, err := dec.Token(); err != nil || token != json.Delim('{') {
+		return nil, fmt.Errorf("expected object, got %v", token)
+	}
+
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		keyStr, ok := key.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected string key, got %v", key)
+		}
+
+		var value interface{}
+		if err := dec.Decode(&value); err != nil {
+			return nil, err
+		}
+
+		om.keys = append(om.keys, keyStr)
+		om.values[keyStr] = value
+	}
+
+	if _, err := dec.Token(); err != nil {
+		return nil, err
+	}
+
+	return om, nil
+}
+
+func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.QueryDataRequest, queryConfig tableQueryConfig) (*backend.QueryDataResponse, error) {
+	response := backend.NewQueryDataResponse()
+
+	for _, q := range req.Queries {
+		var qm map[string]interface{}
+		if err := json.Unmarshal(q.JSON, &qm); err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("json unmarshal: %v", err.Error()))
+			continue
+		}
+
+		for field, message := range queryConfig.required {
+			if value, ok := qm[field].(string); !ok || value == "" {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, message)
+				continue
+			}
+		}
+
+		pluginConfig, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
+			continue
+		}
+
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+		}
+
+		url := fmt.Sprintf("%s%s", pluginConfig.ServerAddress, queryConfig.url)
+
+		reqBody := queryConfig.formatBody(qm)
+
+		bodyBytes, err := json.Marshal(reqBody)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to marshal request body: %v", err))
+			continue
+		}
+
+		request, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
+			continue
+		}
+
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", pluginConfig.Secrets.ApiKey))
+
+		result, err := client.Do(request)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
+			continue
+		}
+		defer result.Body.Close()
+
+		body, err := io.ReadAll(result.Body)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
+			continue
+		}
+
+		if result.StatusCode == http.StatusUnauthorized {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
+			continue
+		}
+
+		var tableResponse []map[string]interface{}
+		if err := json.Unmarshal(body, &tableResponse); err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
+			continue
+		}
+
+		frame := data.NewFrame(queryConfig.frameName)
+
+		if len(tableResponse) > 0 {
+			dec := json.NewDecoder(bytes.NewReader(body))
+			if token, err := dec.Token(); err != nil || token != json.Delim('[') {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("expected array, got %v", token))
+				continue
+			}
+
+			if !dec.More() {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, "empty array")
+				continue
+			}
+
+			var firstObject json.RawMessage
+			if err := dec.Decode(&firstObject); err != nil {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to decode first object: %v", err))
+				continue
+			}
+
+			orderedData, err := decodeOrderedJSON(firstObject)
+			if err != nil {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse first row: %v", err))
+				continue
+			}
+
+			columnValues := make(map[string][]interface{})
+			for _, columnName := range orderedData.keys {
+				columnValues[columnName] = make([]interface{}, len(tableResponse))
+			}
+
+			for i, row := range tableResponse {
+				for _, columnName := range orderedData.keys {
+					val := row[columnName]
+					if val == nil {
+						columnValues[columnName][i] = nil
+						continue
+					}
+
+					switch v := val.(type) {
+					case string:
+						columnValues[columnName][i] = v
+					case float64:
+						columnValues[columnName][i] = v
+					case int:
+						columnValues[columnName][i] = float64(v)
+					case int64:
+						columnValues[columnName][i] = float64(v)
+					case bool:
+						columnValues[columnName][i] = v
+					case []interface{}:
+						columnValues[columnName][i] = fmt.Sprintf("%v", v)
+					default:
+						columnValues[columnName][i] = fmt.Sprintf("%v", v)
+					}
+				}
+			}
+
+			for _, columnName := range orderedData.keys {
+				values := columnValues[columnName]
+				var field *data.Field
+				if len(values) > 0 && values[0] != nil {
+					switch values[0].(type) {
+					case float64:
+						field = data.NewField(columnName, nil, values)
+					case bool:
+						field = data.NewField(columnName, nil, values)
+					default:
+						strValues := make([]string, len(values))
+						for i, v := range values {
+							if v == nil {
+								strValues[i] = ""
+							} else {
+								strValues[i] = fmt.Sprintf("%v", v)
+							}
+						}
+						field = data.NewField(columnName, nil, strValues)
+					}
+				} else {
+					field = data.NewField(columnName, nil, make([]string, len(values)))
+				}
+				frame.Fields = append(frame.Fields, field)
+			}
+		}
+
+		response.Responses[q.RefID] = backend.DataResponse{
+			Frames: data.Frames{frame},
+		}
+	}
+
+	return response, nil
+}
+
+func (d *NetXMSDatasource) handleSummaryTableQuery(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+	return d.handleTableQuery(ctx, req, tableQueryConfig{
+		url:       "/v1/grafana/infinity/summary-table",
+		frameName: "summary-table",
+		required: map[string]string{
+			"summaryTableId": "tableId is required",
+		},
+		formatBody: func(qm map[string]interface{}) map[string]interface{} {
+			reqBody := make(map[string]interface{})
+
+			if rootObjectId, ok := qm["sourceObjectId"].(string); ok && rootObjectId != "" {
+				rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
+				if err == nil {
+					reqBody["rootObjectId"] = rootObjectIdNum
+				}
+			}
+
+			if tableId, ok := qm["summaryTableId"].(string); ok && tableId != "" {
+				tableIdNum, err := strconv.ParseInt(tableId, 10, 64)
+				if err == nil {
+					reqBody["tableId"] = tableIdNum
+				}
+			}
+
+			return reqBody
+		},
+	})
+}
+
+func (d *NetXMSDatasource) handleObjectQueryQuery(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+	return d.handleTableQuery(ctx, req, tableQueryConfig{
+		url:       "/v1/grafana/infinity/object-query",
+		frameName: "object-query",
+		required: map[string]string{
+			"objectQueryId":  "queryId is required",
+			"sourceObjectId": "rootObjectId is required",
+		},
+		formatBody: func(qm map[string]interface{}) map[string]interface{} {
+			reqBody := make(map[string]interface{})
+
+			if rootObjectId, ok := qm["sourceObjectId"].(string); ok && rootObjectId != "" {
+				rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
+				if err == nil {
+					reqBody["rootObjectId"] = rootObjectIdNum
+				}
+			}
+
+			if queryId, ok := qm["objectQueryId"].(string); ok && queryId != "" {
+				queryIdNum, err := strconv.ParseInt(queryId, 10, 64)
+				if err == nil {
+					reqBody["queryId"] = queryIdNum
+				}
+			}
+
+			if values, ok := qm["queryParameters"].(string); ok && values != "" {
+				var parsedValues []map[string]interface{}
+				if err := json.Unmarshal([]byte(values), &parsedValues); err == nil {
+					reqBody["values"] = parsedValues
+				}
+			}
+
+			return reqBody
+		},
+	})
 }

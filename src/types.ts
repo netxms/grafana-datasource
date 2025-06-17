@@ -6,6 +6,7 @@ export interface MyQuery extends DataQuery {
   dciId?: string;
   summaryTableId?: string;
   objectQueryId?: string;
+  queryParameters?: string; // JSON string of query parameters
 }
 
 export const DEFAULT_QUERY: Partial<MyQuery> = {
