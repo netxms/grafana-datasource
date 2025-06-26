@@ -164,11 +164,7 @@ jobs:
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
         with:
-          node-version: '22'      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Prepare Yarn
-        run: corepack prepare yarn@4.9.1 --activate
+          node-version: '22'      
 
       - name: Enable Corepack
         run: corepack enable
