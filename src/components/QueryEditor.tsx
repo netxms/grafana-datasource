@@ -1,38 +1,126 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { InlineField, Stack, Combobox } from '@grafana/ui';
 import { QueryEditorProps } from '@grafana/data';
 import { DataSource } from '../datasource';
-import { MyDataSourceOptions, MyQuery } from '../types';
+import { MyDataSourceOptions as NetXMSDataSourceOptions, NetXMSQuery } from '../types';
 
-type Props = QueryEditorProps<DataSource, MyQuery, MyDataSourceOptions>;
+type Props = QueryEditorProps<DataSource, NetXMSQuery, NetXMSDataSourceOptions>;
+
+type Option = { label: string; value: string };
 
 export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) {
-  const [objectList, setObjectList] = useState<Array<{ label: string; value: string }>>([]);
+  const [objectList, setObjectList] = useState<Option[]>([]);
   const [isLoadingObjects, setIsLoadingObjects] = useState(true);
-  const [summaryTableList, setSummaryTableList] = useState<Array<{ label: string; value: string }>>([]);
+  const [summaryTableList, setSummaryTableList] = useState<Option[]>([]);
   const [isLoadingSummaryTable, setIsLoadingSummaryTable] = useState(true);
-  const [objectQueryList, setObjectQueryList] = useState<Array<{ label: string; value: string }>>([]);
+  const [objectQueryList, setObjectQueryList] = useState<Option[]>([]);
   const [isLoadingObjectQueries, setIsLoadingObjectQueries] = useState(true);
-  const [dciList, setDciList] = useState<Array<{ label: string; value: string }>>([]);
+  const [dciList, setDciList] = useState<Option[]>([]);
   const [isLoadingDcis, setIsLoadingDcis] = useState(true);
+
+  const formatOptions = useCallback((response: any): Option[] => {
+    return response.objects.map((item: any) => ({
+      label: item.name,
+      value: item.id.toString(),
+    }));
+  }, []);
+
+  const loadObjectList = useCallback(async (type: string) => {
+    setIsLoadingObjects(true);
+    try {
+      let response;
+      switch (type) {
+        case 'alarms':
+          response = await datasource.getAlarmObjectList();
+          break;
+        case 'objectStatus':
+        case 'summaryTables':
+          response = await datasource.getSummaryTableObjectList();
+          break;
+        case 'objectQueries':
+          response = await datasource.getObjectQueryObjectList();
+          break;
+        case 'dciValues':
+          response = await datasource.getDciObjectList();
+          break;
+        default:
+          return;
+      }
+      setObjectList(formatOptions(response));
+    } finally {
+      setIsLoadingObjects(false);
+    }
+  }, [datasource, formatOptions]);
+
+  const loadDciList = useCallback(async (objectId: string) => {
+    setIsLoadingDcis(true);
+    try {
+      const response = await datasource.getDciList(objectId);
+      setDciList(formatOptions(response));
+    } finally {
+      setIsLoadingDcis(false);
+    }
+  }, [datasource, formatOptions]);
+
+  const loadSummaryTableList = useCallback(async () => {
+    setIsLoadingSummaryTable(true);
+    try {
+      const response = await datasource.getSummaryTableList();
+      setSummaryTableList(formatOptions(response));
+    } finally {
+      setIsLoadingSummaryTable(false);
+    }
+  }, [datasource, formatOptions]);
+
+  const loadObjectQueryList = useCallback(async () => {
+    setIsLoadingObjectQueries(true);
+    try {
+      const response = await datasource.getObjectQueryList();
+      setObjectQueryList(formatOptions(response));
+    } finally {
+      setIsLoadingObjectQueries(false);
+    }
+  }, [datasource, formatOptions]);
+
+  // Load required elements on mount if query type is set
+  useEffect(() => {
+    if (!query.queryType) {
+      return;
+    }
+
+    switch (query.queryType) {
+      case 'alarms':
+        loadObjectList('alarms');
+        break;
+      case 'summaryTables':
+        loadObjectList('summaryTables');
+        loadSummaryTableList();
+        break;
+      case 'objectQueries':
+        loadObjectList('objectQueries');
+        loadObjectQueryList();
+        break;
+      case 'dciValues':
+        loadObjectList('dciValues');
+        if (query.sourceObjectId) {
+          loadDciList(query.sourceObjectId);
+        }
+        break;
+      case 'objectStatus':
+        loadObjectList('summaryTables');
+        break;
+    }
+  }, [query.queryType, query.sourceObjectId, loadObjectList, loadSummaryTableList, loadObjectQueryList, loadDciList]);
 
   const handleRootObjectChange = (v: { value: string } | null) => {
     onChange({ ...query, 
       sourceObjectId: v?.value,
       dciId: undefined });
-      // Load DCI list
-      if (query.queryType === 'dciValues' && v !== null && v.value !== undefined)
-      {
-        datasource.getDciList(v.value).then(response => {
-          const formattedOptions = response.objects.map((item) => ({
-            label: item.name,
-            value: item.id.toString(),
-          }));
-          setDciList(formattedOptions);
-          setIsLoadingDcis(false);
-        });
-      }
-      handleOnRunQuery();
+    
+    if (query.queryType === 'dciValues' && v?.value) {
+      loadDciList(v.value);
+    }
+    handleOnRunQuery();
   };
 
   const handleOnRunQuery = (): void => {
@@ -41,13 +129,11 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         onRunQuery();
         break;
       case 'summaryTables':
-        // For summary tables, both sourceObjectId and summaryTableId are required
         if (query.sourceObjectId && query.summaryTableId) {
           onRunQuery();
         }
         break;
       case 'objectQueries':
-        // For object queries, objectQueryId is required and queryParameters should be valid JSON
         if (query.objectQueryId) {
           if (query.queryParameters) {
             try {
@@ -62,95 +148,52 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         }
         break;
       case 'dciValues':
-        // For DCI values, both sourceObjectId and dciId are required
         if (query.sourceObjectId && query.dciId) {
           onRunQuery();
         }
         break;
-      default:
+      case 'objectStatus':
+        if (query.sourceObjectId) {
+          onRunQuery();
+        }
         break;
     }
   };
 
   const onTypeChange = (option: { value: string } | null) => {
-    if (option) {
-      onChange({ ...query, 
-        queryType: option.value,
-        sourceObjectId: undefined,
-        dciId: undefined,
-        summaryTableId: undefined,
-        objectQueryId: undefined, });
-      // Switch depending on selected value to load from datasource required data
-      switch (option.value) {
-        case 'alarms':
-          // Load alarm object list
-          datasource.getAlarmObjectList().then(response => {
-            const formattedOptions = response.objects.map((item) => ({
-              label: item.name,
-              value: item.id.toString(),
-            }));
-            setObjectList(formattedOptions);
-            setIsLoadingObjects(false);
-          });
-          onRunQuery();
-          break;
-        case 'summaryTables':
-          // Load summary table list
-          datasource.getSummaryTableObjectList().then(response => {
-            const formattedOptions = response.objects.map((item) => ({
-              label: item.name,
-              value: item.id.toString(),
-            }));
-            setObjectList(formattedOptions);
-            setIsLoadingObjects(false);
-          });
-          datasource.getSummaryTableList().then(response => {
-            const formattedOptions = response.objects.map((item) => ({
-              label: item.name,
-              value: item.id.toString(),
-            }));
-            setSummaryTableList(formattedOptions);
-            setIsLoadingSummaryTable(false);
-          });
-          break;
-        case 'objectQueries':
-          // Load object query list
-          datasource.getObjectQueryObjectList().then(response => {
-            console.log('Object query List Response:', response);
-            const formattedOptions = response.objects.map((item) => ({
-              label: item.name,
-              value: item.id.toString(),
-            }));
-            console.log('Formatted object query Options:', formattedOptions);
-            setObjectList(formattedOptions);
-            setIsLoadingObjects(false);
-          });
-          datasource.getObjectQueryList().then(response => {
-            const formattedOptions = response.objects.map((item) => ({
-              label: item.name,
-              value: item.id.toString(),
-            }));
-            setObjectQueryList(formattedOptions);
-            setIsLoadingObjectQueries(false);
-          });
-          break;
-        case 'dciValues':
-          // Load object query list
-          datasource.getDciObjectList().then(response => {
-            const formattedOptions = response.objects.map((item) => ({
-              label: item.name,
-              value: item.id.toString(),
-            }));
-            setObjectList(formattedOptions);
-            setIsLoadingObjects(false);
-          });
-          break;
-        default:
-          break;
-      }
+    if (!option) {
+      return;
+    }
+
+    onChange({ ...query, 
+      queryType: option.value,
+      sourceObjectId: undefined,
+      dciId: undefined,
+      summaryTableId: undefined,
+      objectQueryId: undefined,
+    });
+
+    switch (option.value) {
+      case 'alarms':
+        loadObjectList('alarms');
+        onRunQuery();
+        break;
+      case 'summaryTables':
+        loadObjectList('summaryTables');
+        loadSummaryTableList();
+        break;
+      case 'objectQueries':
+        loadObjectList('objectQueries');
+        loadObjectQueryList();
+        break;
+      case 'dciValues':
+        loadObjectList('dciValues');
+        break;
+      case 'objectStatus':
+        loadObjectList('summaryTables');
+        break;
     }
   };
-
 
   return (
     <Stack gap={2} direction="column">
@@ -162,6 +205,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
             { label: 'Summary Tables', value: 'summaryTables' },
             { label: 'Object Queries', value: 'objectQueries' },
             { label: 'DCI value', value: 'dciValues' },
+            { label: 'Object Status', value: 'objectStatus' },
           ]}         
           onChange={ onTypeChange }
         />
@@ -183,7 +227,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       )}
 
       {/* Required object selector */}
-      {(query.queryType === 'summaryTables' || query.queryType === 'dciValues') && (
+      {(query.queryType === 'summaryTables' || query.queryType === 'dciValues' || query.queryType === 'objectStatus') && (
         <InlineField label="Root object" labelWidth={16}>
           <Combobox
             value={query.sourceObjectId}

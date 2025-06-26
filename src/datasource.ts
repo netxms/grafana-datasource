@@ -1,14 +1,14 @@
 import { DataSourceInstanceSettings, CoreApp } from '@grafana/data';
 import { DataSourceWithBackend } from '@grafana/runtime';
 
-import { MyQuery, MyDataSourceOptions, DEFAULT_QUERY, ObjectToIdList } from './types';
+import { NetXMSQuery, MyDataSourceOptions as NetXMSDataSourceOptions, DEFAULT_QUERY, ObjectToIdList } from './types';
 
-export class DataSource extends DataSourceWithBackend<MyQuery, MyDataSourceOptions> {
-  constructor(instanceSettings: DataSourceInstanceSettings<MyDataSourceOptions>) {
+export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSourceOptions> {
+  constructor(instanceSettings: DataSourceInstanceSettings<NetXMSDataSourceOptions>) {
     super(instanceSettings);
   }
 
-  getDefaultQuery(_: CoreApp): Partial<MyQuery> {
+  getDefaultQuery(_: CoreApp): Partial<NetXMSQuery> {
     return DEFAULT_QUERY;
   }
   
@@ -38,5 +38,45 @@ export class DataSource extends DataSourceWithBackend<MyQuery, MyDataSourceOptio
 
   getSummaryTableList(): Promise<ObjectToIdList> {
     return this.getResource('summaryTables');
+  }
+
+  filterQuery(query: NetXMSQuery): boolean {
+    if (!query.queryType) {
+      return false;
+    }
+
+    switch (query.queryType) {
+      case 'alarms':
+        // No required fields for alarms
+        return true;
+      
+      case 'dciValues':
+        // Both sourceObjectId and dciId are required
+        return !!(query.sourceObjectId && query.dciId);
+      
+      case 'summaryTables':
+        // Both sourceObjectId and summaryTableId are required
+        return !!(query.sourceObjectId && query.summaryTableId);
+      
+      case 'objectQueries':
+        // sourceObjectId, objectQueryId are required
+        // queryParameters is optional but must be valid JSON if provided
+        if (!query.objectQueryId) {
+          return false;
+        }
+        if (query.queryParameters) {
+          try {
+            JSON.parse(query.queryParameters);
+          } catch (e) {
+            return false;
+          }
+        }
+        return true;
+      case 'objectStatus':
+        // sourceObjectId is required
+        return !!query.sourceObjectId;      
+      default:
+        return false;
+    }
   }
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -54,7 +55,7 @@ func NewDatasource(_ context.Context, _ backend.DataSourceInstanceSettings) (ins
 	queryTypeMux.HandleFunc("dciValues", ds.handleDciValues)
 	queryTypeMux.HandleFunc("summaryTables", ds.handleSummaryTableQuery)
 	queryTypeMux.HandleFunc("objectQueries", ds.handleObjectQueryQuery)
-	//TODO: should I do fallback? queryTypeMux.HandleFunc("", ds.handleQueryFallback)
+	queryTypeMux.HandleFunc("objectStatus", ds.handleObjectStatusQuery)
 	ds.queryHandler = queryTypeMux
 	return ds, nil
 }
@@ -174,6 +175,14 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		return backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
 	}
 
+	if result.StatusCode != http.StatusOK {
+		var reasonResp map[string]string
+		if err := json.Unmarshal(body, &reasonResp); err == nil {
+			return backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
+		}
+		return backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), "Request error")
+	}
+
 	var alarms []alarmResponse
 	if err := json.Unmarshal(body, &alarms); err != nil {
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err.Error()))
@@ -203,10 +212,37 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		lastChange[i] = alarm.LastChange
 	}
 
+	severityField := data.NewField("Severity", nil, severities)
+	severityField.Config = &data.FieldConfig{
+		Mappings: data.ValueMappings{
+			data.ValueMapper{
+				"Normal":    {Text: "Normal", Color: "rgb(0, 137, 0)"},
+				"Warning":   {Text: "Warning", Color: "rgb(0, 142, 145)"},
+				"Minor":     {Text: "Minor", Color: "rgb(201, 198, 0)"},
+				"Major":     {Text: "Major", Color: "rgb(223, 102, 0)"},
+				"Critical":  {Text: "Critical", Color: "rgb(160, 0, 0)"},
+				"Unknown":   {Text: "Unknown", Color: "rgb(33, 33, 248)"},
+				"Unmanaged": {Text: "Unmanaged", Color: "rgb(113, 113, 113)"},
+				"Disabled":  {Text: "Disabled", Color: "rgb(100, 41, 0)"},
+				"Testing":   {Text: "Testing", Color: "rgb(138, 0, 143)"},
+			},
+		},
+	}
+	stateField := data.NewField("State", nil, states)
+	stateField.Config = &data.FieldConfig{
+		Mappings: data.ValueMappings{
+			data.ValueMapper{
+				"Outstanding":  {Text: "Outstanding", Color: "yellow"},
+				"Acknowledged": {Text: "Acknowledged", Color: "greenyellow"},
+				"Resolved":     {Text: "Resolved", Color: "green"},
+			},
+		},
+	}
+
 	frame.Fields = append(frame.Fields,
 		data.NewField("Id", nil, ids),
-		data.NewField("Severity", nil, severities),
-		data.NewField("State", nil, states),
+		severityField,
+		stateField,
 		data.NewField("Source", nil, sources),
 		data.NewField("Message", nil, messages),
 		data.NewField("Count", nil, counts),
@@ -317,37 +353,89 @@ func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.Respo
 		http.Error(rw, "failed read response", http.StatusInternalServerError)
 		return
 	}
-	rw.Header().Add("Content-Type", "application/json")
-	_, err = rw.Write(body)
-	if err != nil {
+	defer result.Body.Close()
+
+	// Parse JSON and sort by label
+	var responseData map[string]interface{}
+	if err := json.Unmarshal(body, &responseData); err != nil {
+		// If parsing fails, return original response
+		rw.Header().Add("Content-Type", "application/json")
+		rw.WriteHeader(http.StatusOK)
+		rw.Write(body)
 		return
 	}
-	defer result.Body.Close()
+
+	// Check if "objects" field exists and is an array
+	objects, ok := responseData["objects"].([]interface{})
+	if !ok {
+		// If no "objects" field, return original response
+		rw.Header().Add("Content-Type", "application/json")
+		rw.WriteHeader(http.StatusOK)
+		rw.Write(body)
+		return
+	}
+
+	// Convert to slice of maps for sorting
+	jsonData := make([]map[string]interface{}, len(objects))
+	for i, obj := range objects {
+		if objMap, ok := obj.(map[string]interface{}); ok {
+			jsonData[i] = objMap
+		} else {
+			// If conversion fails, return original response
+			rw.Header().Add("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusOK)
+			rw.Write(body)
+			return
+		}
+	}
+
+	// Sort by name field
+	sort.Slice(jsonData, func(i, j int) bool {
+		nameI, okI := jsonData[i]["name"].(string)
+		nameJ, okJ := jsonData[j]["name"].(string)
+		if !okI || !okJ {
+			return false
+		}
+		return nameI < nameJ
+	})
+
+	// Update the objects field with sorted data
+	responseData["objects"] = jsonData
+
+	// Marshal back to JSON
+	sortedBody, err := json.Marshal(responseData)
+	if err != nil {
+		http.Error(rw, "failed to marshal sorted response", http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Add("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
+	rw.Write(sortedBody)
 }
 
 func (ds *NetXMSDatasource) handleAlarmObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/object-list?filter=alarm", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=alarm", "GET", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleDciObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/object-list?filter=dci", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=dci", "GET", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleSummaryTables(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/summary-table-list", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/summary-table-list", "GET", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleSummaryTableObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/object-list?filter=summary", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=summary", "GET", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleObjectQueries(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/query-list", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/query-list", "GET", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleObjectQueryObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/object-list?filter=query", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=query", "GET", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
@@ -356,7 +444,7 @@ func (ds *NetXMSDatasource) handleDciList(rw http.ResponseWriter, req *http.Requ
 		http.Error(rw, "missing objectId parameter", http.StatusBadRequest)
 		return
 	}
-	path := fmt.Sprintf("/v1/objects/%s/dci-list", objectID)
+	path := fmt.Sprintf("/v1/grafana/objects/%s/dci-list", objectID)
 	ds.handleQuery(path, "GET", rw, req)
 }
 
@@ -556,6 +644,16 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 			continue
 		}
 
+		if result.StatusCode != http.StatusOK {
+			var reasonResp map[string]string
+			if err := json.Unmarshal(body, &reasonResp); err == nil {
+				response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
+				continue
+			}
+			response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), "Request error")
+			continue
+		}
+
 		var tableResponse []map[string]interface{}
 		if err := json.Unmarshal(body, &tableResponse); err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
@@ -719,4 +817,145 @@ func (d *NetXMSDatasource) handleObjectQueryQuery(ctx context.Context, req *back
 			return reqBody
 		},
 	})
+}
+
+type objectStatusResponse struct {
+	Name   string `json:"Name"`
+	Status int32  `json:"Status"`
+}
+
+func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+	response := backend.NewQueryDataResponse()
+
+	for _, q := range req.Queries {
+		var qm queryModel
+		if err := json.Unmarshal(q.JSON, &qm); err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("json unmarshal: %v", err.Error()))
+			continue
+		}
+
+		pluginConfig, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
+			continue
+		}
+
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+		}
+
+		url := fmt.Sprintf("%s/v1/grafana/objects-status", pluginConfig.ServerAddress)
+
+		reqBody := map[string]interface{}{}
+		if qm.SourceObjectId != "" {
+			rootObjectIdNum, err := strconv.ParseInt(qm.SourceObjectId, 10, 64)
+			if err == nil {
+				reqBody["rootObjectId"] = rootObjectIdNum
+			}
+		}
+
+		bodyBytes, err := json.Marshal(reqBody)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to marshal request body: %v", err))
+			continue
+		}
+
+		request, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
+			continue
+		}
+
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", pluginConfig.Secrets.ApiKey))
+
+		result, err := client.Do(request)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
+			continue
+		}
+		defer result.Body.Close()
+
+		body, err := io.ReadAll(result.Body)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
+			continue
+		}
+
+		if result.StatusCode == http.StatusUnauthorized {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
+			continue
+		}
+
+		if result.StatusCode != http.StatusOK {
+			var reasonResp map[string]string
+			if err := json.Unmarshal(body, &reasonResp); err == nil {
+				response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
+				continue
+			}
+			response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), "Request error")
+			continue
+		}
+
+		var statusData []objectStatusResponse
+		if err := json.Unmarshal([]byte(body), &statusData); err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
+			continue
+		}
+
+		color := []string{
+			"rgb(0, 137, 0)",     // Normal
+			"rgb(0, 142, 145)",   // Warning
+			"rgb(201, 198, 0)",   // Minor
+			"rgb(223, 102, 0)",   // Major
+			"rgb(160, 0, 0)",     // Critical
+			"rgb(33, 33, 248)",   // Unknown
+			"rgb(113, 113, 113)", // Unmanaged
+			"rgb(100, 41, 0)",    // Disabled
+			"rgb(138, 0, 143)",   // Testing
+		}
+
+		var frames data.Frames
+		for _, obj := range statusData {
+			frame := data.NewFrame(obj.Name)
+
+			// Use DisplayName to show object name in stat panel
+			nameField := data.NewField("Name", nil, []string{obj.Name})
+			nameField.Config = &data.FieldConfig{
+				Mappings: data.ValueMappings{
+					data.ValueMapper{
+						obj.Name: {Text: obj.Name, Color: color[obj.Status]},
+					},
+				},
+			}
+			frame.Fields = append(frame.Fields, nameField)
+			frames = append(frames, frame)
+		}
+
+		response.Responses[q.RefID] = backend.DataResponse{
+			Frames: frames,
+		}
+	}
+
+	return response, nil
+}
+
+// httpStatusToBackendStatus maps HTTP status codes to backend.Status
+func httpStatusToBackendStatus(code int) backend.Status {
+	if code == 400 {
+		return backend.StatusBadRequest
+	}
+	if code == 401 {
+		return backend.StatusUnauthorized
+	}
+	if code == 403 {
+		return backend.StatusForbidden
+	}
+	if code == 404 {
+		return backend.StatusNotFound
+	}
+	if code >= 500 && code < 600 {
+		return backend.StatusInternal
+	}
+	return backend.StatusUnknown
 }

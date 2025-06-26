@@ -2,8 +2,8 @@ import { DataSourcePlugin } from '@grafana/data';
 import { DataSource } from './datasource';
 import { ConfigEditor } from './components/ConfigEditor';
 import { QueryEditor } from './components/QueryEditor';
-import { MyQuery, MyDataSourceOptions, MySecureJsonData } from './types';
+import { NetXMSQuery, MyDataSourceOptions as NetXMSDataSourceOptions, NetXMSSecureJsonData as NetXMSSecureJsonData } from './types';
 
-export const plugin = new DataSourcePlugin<DataSource, MyQuery, MyDataSourceOptions, MySecureJsonData>(DataSource)
+export const plugin = new DataSourcePlugin<DataSource, NetXMSQuery, NetXMSDataSourceOptions, NetXMSSecureJsonData>(DataSource)
   .setConfigEditor(ConfigEditor)
   .setQueryEditor(QueryEditor);
