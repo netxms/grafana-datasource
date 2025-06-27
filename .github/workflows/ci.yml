@@ -144,11 +144,40 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        GRAFANA_IMAGE: ${{fromJson(needs.resolve-versions.outputs.matrix)}}
+        GRAFANA_IMAGE: ${{ fromJson(needs.resolve-versions.outputs.matrix) }}
     name: e2e test ${{ matrix.GRAFANA_IMAGE.name }}@${{ matrix.GRAFANA_IMAGE.VERSION }}
     runs-on: ubuntu-latest
+    services:
+      netxms-server:
+        # See https://github.com/netxms/docker
+        image: ghcr.io/netxms/server:latest
+        ports:
+          - 4701:4701
+          - 8000:8000
+          - 4700:4700
+        options: >-
+          --health-cmd="nc -z localhost 4701" --health-interval=10s --health-timeout=5s --health-retries=5
+
+      netxms-agent:
+        # See https://github.com/netxms/docker
+        image: ghcr.io/netxms/agent:latest
+        ports:
+          - 4700:4700
+        options: >-
+          --health-cmd="nc -z localhost 4700" --health-interval=10s --health-timeout=5s --health-retries=5
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create netxmsd.conf
+        run: |
+          touch /etc/netxmsd.conf
+          echo "DBDriver=sqlite.ddr" > ./netxms-conf/netxmsd.conf
+          echo "DBName=/tmp/test.db" >> ./netxms-conf/netxmsd.conf
+          echo "Module=webapi" >> ./netxms-conf/netxmsd.conf
+
+      - name: Initialize NetXMS database
+        run: |
+          docker exec $(docker ps -qf "ancestor=ghcr.io/netxms/server:latest") nxdbmgr init
 
       - name: Download plugin
         uses: actions/download-artifact@v4

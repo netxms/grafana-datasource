@@ -1,7 +1,7 @@
 import { DataSourceInstanceSettings, CoreApp } from '@grafana/data';
 import { DataSourceWithBackend } from '@grafana/runtime';
 
-import { NetXMSQuery, MyDataSourceOptions as NetXMSDataSourceOptions, DEFAULT_QUERY, ObjectToIdList } from './types';
+import { NetXMSQuery, NetxmsSourceOptions as NetXMSDataSourceOptions, DEFAULT_QUERY, ObjectToIdList } from './types';
 
 export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSourceOptions> {
   constructor(instanceSettings: DataSourceInstanceSettings<NetXMSDataSourceOptions>) {

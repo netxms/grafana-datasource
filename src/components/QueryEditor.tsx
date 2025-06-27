@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { InlineField, Stack, Combobox } from '@grafana/ui';
 import { QueryEditorProps } from '@grafana/data';
 import { DataSource } from '../datasource';
-import { MyDataSourceOptions as NetXMSDataSourceOptions, NetXMSQuery } from '../types';
+import { NetxmsSourceOptions as NetXMSDataSourceOptions, NetXMSQuery } from '../types';
 
 type Props = QueryEditorProps<DataSource, NetXMSQuery, NetXMSDataSourceOptions>;
 

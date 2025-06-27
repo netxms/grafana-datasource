@@ -1,9 +1,9 @@
 import React, { ChangeEvent } from 'react';
 import { InlineField, Input, SecretInput } from '@grafana/ui';
 import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { MyDataSourceOptions, NetXMSSecureJsonData } from '../types';
+import { NetxmsSourceOptions, NetXMSSecureJsonData } from '../types';
 
-interface Props extends DataSourcePluginOptionsEditorProps<MyDataSourceOptions, NetXMSSecureJsonData> {}
+interface Props extends DataSourcePluginOptionsEditorProps<NetxmsSourceOptions, NetXMSSecureJsonData> {}
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;

@@ -9,6 +9,6 @@ datasources:
     version: 1
     editable: true
     jsonData:
-      path: '/resources'
+      serverAddress: 'http://netxms-server:8000/'
     secureJsonData:
       apiKey: 'api-key'
