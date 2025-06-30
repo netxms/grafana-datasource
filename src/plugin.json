@@ -16,8 +16,17 @@
       "small": "img/logo.svg",
       "large": "img/logo.svg"
     },
-    "links": [],
-    "screenshots": [],
+    "links": [
+      {
+        "name" : "NetXMS website",
+        "url" : "https://netxms.com/"
+      },
+      {
+        "name" : "Documentation",
+        "url" : "https://netxms.com/documentation"
+      }
+    ],
+    "screenshots": ["src/img/dashboard-alarms.png", "src/img/dashboard-graph.png", "src/img/dashboard-object-query.png", "src/img/dashboard-statu-map.png", "src/img/dashboard-summary-table.png"],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
