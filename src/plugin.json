@@ -24,9 +24,19 @@
       {
         "name" : "Documentation",
         "url" : "https://netxms.com/documentation"
+      },
+      {
+        "name" : "sponsorship",
+        "url" : "https://github.com/sponsors/netxms"
       }
     ],
-    "screenshots": ["src/img/dashboard-alarms.png", "src/img/dashboard-graph.png", "src/img/dashboard-object-query.png", "src/img/dashboard-statu-map.png", "src/img/dashboard-summary-table.png"],
+    "screenshots": [
+      { "path": "img/dashboard-alarms.png" },
+      { "path": "img/dashboard-graph.png" },
+      { "path": "img/dashboard-object-query.png" },
+      { "path": "img/dashboard-statu-map.png" },
+      { "path": "img/dashboard-summary-table.png" }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
