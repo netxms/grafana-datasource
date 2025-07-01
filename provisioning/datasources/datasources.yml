@@ -11,4 +11,4 @@ datasources:
     jsonData:
       serverAddress: 'http://netxms-server:8000/'
     secureJsonData:
-      apiKey: 'api-key'
+      apiKey: $NX_API_KEY
