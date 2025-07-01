@@ -113,10 +113,10 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
   }, [query.queryType, query.sourceObjectId, loadObjectList, loadSummaryTableList, loadObjectQueryList, loadDciList]);
 
   const handleRootObjectChange = (v: { value: string } | null) => {
-    onChange({ ...query, 
+    onChange({ ...query,
       sourceObjectId: v?.value,
       dciId: undefined });
-    
+
     if (query.queryType === 'dciValues' && v?.value) {
       loadDciList(v.value);
     }
@@ -165,7 +165,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       return;
     }
 
-    onChange({ ...query, 
+    onChange({ ...query,
       queryType: option.value,
       sourceObjectId: undefined,
       dciId: undefined,
@@ -206,7 +206,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
             { label: 'Object Queries', value: 'objectQueries' },
             { label: 'DCI value', value: 'dciValues' },
             { label: 'Object Status', value: 'objectStatus' },
-          ]}         
+          ]}
           onChange={ onTypeChange }
         />
       </InlineField>
@@ -217,7 +217,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
           <Combobox
             value={query.sourceObjectId}
             isClearable={true}
-            onChange={ (v) => { onChange({ ...query, sourceObjectId: v?.value }); handleOnRunQuery(); }}  
+            onChange={ (v) => { onChange({ ...query, sourceObjectId: v?.value }); handleOnRunQuery(); }}
             options={objectList}
             loading={isLoadingObjects}
             placeholder="Root object"
@@ -241,11 +241,11 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       )}
 
 
-      {query.queryType === 'summaryTables' && (        
+      {query.queryType === 'summaryTables' && (
         <InlineField label="Summary table" labelWidth={16}>
           <Combobox
             value={query.summaryTableId}
-            onChange={ (v) => { onChange({ ...query, summaryTableId: v.value }); handleOnRunQuery(); }}       
+            onChange={ (v) => { onChange({ ...query, summaryTableId: v.value }); handleOnRunQuery(); }}
             options={summaryTableList}
             loading={isLoadingSummaryTable}
             placeholder="Summary table"
@@ -259,7 +259,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
           <InlineField label="Object query" labelWidth={16}>
             <Combobox
               value={query.objectQueryId}
-              onChange={ (v) => { onChange({ ...query, objectQueryId: v.value }); handleOnRunQuery(); }}          
+              onChange={ (v) => { onChange({ ...query, objectQueryId: v.value }); handleOnRunQuery(); }}
               options={objectQueryList}
               loading={isLoadingObjectQueries}
               placeholder="Select query"
@@ -269,10 +269,10 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
           <InlineField label="Query parameters" labelWidth={16}>
             <textarea
               value={query.queryParameters || ''}
-              onChange={(e) => { 
+              onChange={(e) => {
                 try {
                   JSON.parse(e.target.value); // Just validate JSON
-                  onChange({ ...query, queryParameters: e.target.value }); 
+                  onChange({ ...query, queryParameters: e.target.value });
                   handleOnRunQuery();
                 } catch (err) {
                   // If JSON is invalid, just update the value without running the query
@@ -290,7 +290,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         <InlineField label="DCI" labelWidth={16}>
           <Combobox
             value={query.dciId}
-            onChange={ (v) => { onChange({ ...query, dciId: v.value }); handleOnRunQuery(); }}  
+            onChange={ (v) => { onChange({ ...query, dciId: v.value }); handleOnRunQuery(); }}
             options={dciList}
             loading={isLoadingDcis}
             width={32}

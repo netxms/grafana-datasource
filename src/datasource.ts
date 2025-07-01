@@ -11,19 +11,19 @@ export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSou
   getDefaultQuery(_: CoreApp): Partial<NetXMSQuery> {
     return DEFAULT_QUERY;
   }
-  
+
   getAlarmObjectList(): Promise<ObjectToIdList> {
     return this.getResource('alarmObjects');
   }
-  
+
   getSummaryTableObjectList(): Promise<ObjectToIdList> {
     return this.getResource('summaryTableObjects');
   }
-  
+
   getObjectQueryObjectList(): Promise<ObjectToIdList> {
     return this.getResource('objectQueryObjects');
   }
-  
+
   getObjectQueryList(): Promise<ObjectToIdList> {
     return this.getResource('objectQueries');
   }
@@ -49,15 +49,15 @@ export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSou
       case 'alarms':
         // No required fields for alarms
         return true;
-      
+
       case 'dciValues':
         // Both sourceObjectId and dciId are required
         return !!(query.sourceObjectId && query.dciId);
-      
+
       case 'summaryTables':
         // Both sourceObjectId and summaryTableId are required
         return !!(query.sourceObjectId && query.summaryTableId);
-      
+
       case 'objectQueries':
         // sourceObjectId, objectQueryId are required
         // queryParameters is optional but must be valid JSON if provided
@@ -74,7 +74,7 @@ export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSou
         return true;
       case 'objectStatus':
         // sourceObjectId is required
-        return !!query.sourceObjectId;      
+        return !!query.sourceObjectId;
       default:
         return false;
     }

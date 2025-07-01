@@ -8,8 +8,8 @@ The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS,
 
 - Query NetXMS alarms
 - Show DCI values
-- Query summary tables 
-- Object status map 
+- Query summary tables
+- Object status map
 - Support for custom queries and dynamic dashboards
 - Secure API key authentication
 
