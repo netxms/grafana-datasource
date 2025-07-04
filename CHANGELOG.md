@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.0] - 2024-06-07
+## [2.0.0] - 2024-06-07
 
 ### Features
 - Initial release of NetXMS Grafana data source plugin

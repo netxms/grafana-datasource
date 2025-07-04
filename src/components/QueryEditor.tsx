@@ -199,6 +199,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
     <Stack gap={2} direction="column">
       <InlineField label="Query Type">
         <Combobox
+          id='queryType'
           value={query.queryType}
           options={[
             { label: 'Alarms', value: 'alarms' },
@@ -215,6 +216,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       {(query.queryType === 'alarms' || query.queryType === 'objectQueries') && (
         <InlineField label="Root object" labelWidth={16}>
           <Combobox
+            id='sourceObjectId'
             value={query.sourceObjectId}
             isClearable={true}
             onChange={ (v) => { onChange({ ...query, sourceObjectId: v?.value }); handleOnRunQuery(); }}

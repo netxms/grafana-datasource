@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -135,7 +136,7 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		Timeout: 10 * time.Second,
 	}
 
-	statusURL := fmt.Sprintf("%s%s", config.ServerAddress, "/v1/grafana/infinity/alarms")
+	statusURL := joinURL(config.ServerAddress, "v1/server-info")
 
 	var bodyBytes []byte
 	if rootObjectId != "" {
@@ -256,6 +257,32 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 	return response
 }
 
+// Compare server version
+func isVersionGreater(actualVersion, requireVersion string) bool {
+	actualVersionParts := strings.Split(actualVersion, ".")
+	requiredVersionParts := strings.Split(requireVersion, ".")
+	maxLen := len(actualVersionParts)
+	if len(requiredVersionParts) > maxLen {
+		maxLen = len(requiredVersionParts)
+	}
+	for i := 0; i < maxLen; i++ {
+		var actualVersionNum, requiredVersionNum int
+		if i < len(actualVersionParts) {
+			actualVersionNum, _ = strconv.Atoi(actualVersionParts[i])
+		}
+		if i < len(requiredVersionParts) {
+			requiredVersionNum, _ = strconv.Atoi(requiredVersionParts[i])
+		}
+		if actualVersionNum > requiredVersionNum {
+			return true
+		}
+		if actualVersionNum < requiredVersionNum {
+			return false
+		}
+	}
+	return true
+}
+
 // CheckHealth handles health checks sent from Grafana to the plugin.
 // The main use case for these health checks is the test button on the
 // datasource configuration page which allows users to verify that
@@ -286,7 +313,7 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 		Timeout: 10 * time.Second,
 	}
 
-	statusURL := fmt.Sprintf("%s/v1/status", config.ServerAddress)
+	statusURL := joinURL(config.ServerAddress, "v1/server-info")
 	request, err := http.NewRequest("GET", statusURL, nil)
 	if err != nil {
 		res.Status = backend.HealthStatusError
@@ -302,11 +329,29 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 		res.Message = fmt.Sprintf("Failed to connect to server: %v", err)
 		return res, nil
 	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		res.Status = backend.HealthStatusError
+		res.Message = fmt.Sprintf("failed read response: %d (%s)", response.StatusCode, response.Status)
+		return res, nil
+	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		res.Status = backend.HealthStatusError
 		res.Message = fmt.Sprintf("Server returned status code: %d (%s)", response.StatusCode, response.Status)
+		return res, nil
+	}
+
+	var data map[string]interface{}
+	json.Unmarshal([]byte(body), &data)
+	actualVersion := data["version"].(string)
+	requiredVersion := "5.2.4"
+	if !isVersionGreater(actualVersion, requiredVersion) {
+		fmt.Printf("Server version %s is NOT greater than %s\n", actualVersion, requiredVersion)
+		res.Status = backend.HealthStatusError
+		res.Message = fmt.Sprintf("Server version (current: %s) should be greater than %s", actualVersion, requiredVersion)
 		return res, nil
 	}
 
@@ -333,7 +378,7 @@ func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.Respo
 		Timeout: 10 * time.Second,
 	}
 
-	statusURL := fmt.Sprintf("%s%s", config.ServerAddress, url)
+	statusURL := joinURL(config.ServerAddress, url)
 	request, err := http.NewRequest(method, statusURL, nil)
 	if err != nil {
 		http.Error(rw, "failed to create request", http.StatusInternalServerError)
@@ -470,8 +515,8 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		timeFrom := q.TimeRange.From.Format(time.UnixDate)
 		timeTo := q.TimeRange.To.Format(time.UnixDate)
 
-		url := fmt.Sprintf("%s/v1/objects/%s/data-collection/%s/history?timeFrom=%s&timeTo=%s",
-			config.ServerAddress, qm.SourceObjectId, qm.DciId, timeFrom, timeTo)
+		url := joinURL(config.ServerAddress, fmt.Sprintf("v1/objects/%s/data-collection/%s/history?timeFrom=%s&timeTo=%s",
+			qm.SourceObjectId, qm.DciId, timeFrom, timeTo))
 
 		request, err := http.NewRequest("GET", url, nil)
 		if err != nil {
@@ -607,7 +652,7 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 			Timeout: 10 * time.Second,
 		}
 
-		url := fmt.Sprintf("%s%s", pluginConfig.ServerAddress, queryConfig.url)
+		url := joinURL(pluginConfig.ServerAddress, queryConfig.url)
 
 		reqBody := queryConfig.formatBody(qm)
 
@@ -844,7 +889,7 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 			Timeout: 10 * time.Second,
 		}
 
-		url := fmt.Sprintf("%s/v1/grafana/objects-status", pluginConfig.ServerAddress)
+		url := joinURL(pluginConfig.ServerAddress, "/v1/grafana/objects-status")
 
 		reqBody := map[string]interface{}{}
 		if qm.SourceObjectId != "" {
@@ -958,4 +1003,10 @@ func httpStatusToBackendStatus(code int) backend.Status {
 		return backend.StatusInternal
 	}
 	return backend.StatusUnknown
+}
+
+func joinURL(base, path string) string {
+	base = strings.TrimRight(base, "/")
+	path = strings.TrimLeft(path, "/")
+	return base + "/" + path
 }

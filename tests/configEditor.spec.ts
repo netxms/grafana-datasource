@@ -15,7 +15,8 @@ test('"Save & test" should be successful when configuration is valid', async ({
   const configPage = await createDataSourceConfigPage({ type: ds.type });
   await page.getByRole('textbox', { name: 'API address' }).fill(ds.jsonData.serverAddress ?? '');
   await page.getByRole('textbox', { name: 'API Key' }).fill(ds.secureJsonData?.apiKey ?? '');
-  await expect(configPage.saveAndTest()).toBeOK();
+  const result = await configPage.saveAndTest();
+  expect(result.ok()).toBeTruthy();
 });
 
 test('"Save & test" should fail when configuration is invalid', async ({
