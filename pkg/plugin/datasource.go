@@ -351,7 +351,7 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 	if !isVersionGreater(actualVersion, requiredVersion) {
 		fmt.Printf("Server version %s is NOT greater than %s\n", actualVersion, requiredVersion)
 		res.Status = backend.HealthStatusError
-		res.Message = fmt.Sprintf("Server version (current: %s) should be greater than %s", actualVersion, requiredVersion)
+		res.Message = fmt.Sprintf("Server version (current: %s) should be equal or greater than %s", actualVersion, requiredVersion)
 		return res, nil
 	}
 
