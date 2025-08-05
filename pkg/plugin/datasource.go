@@ -347,7 +347,7 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 	var data map[string]interface{}
 	json.Unmarshal([]byte(body), &data)
 	actualVersion := data["version"].(string)
-	requiredVersion := "5.2.3"
+	requiredVersion := "5.2.4"
 	if !isVersionGreater(actualVersion, requiredVersion) {
 		fmt.Printf("Server version %s is NOT greater than %s\n", actualVersion, requiredVersion)
 		res.Status = backend.HealthStatusError
