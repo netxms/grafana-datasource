@@ -149,7 +149,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       netxms-server:
-        image: ghcr.io/netxms/server-e2e:latest
+        image: ghcr.io/netxms/server-e2e:5.2.4
         ports:
           - 4701:4701
           - 8000:8000
