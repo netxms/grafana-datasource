@@ -17,7 +17,7 @@ test('"Save & test" should be successful when configuration is valid', async ({
   // Connectivity check
   if (ds?.jsonData?.serverAddress) {
     try {
-      const response = await fetch(ds.jsonData.serverAddress);
+      const response = await fetch(ds.jsonData.serverAddress + 'v1/server-info');
       console.log('Connectivity check status:', response.status);
     } catch (err) {
       console.error('Connectivity check failed:', err);
