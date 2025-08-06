@@ -220,6 +220,10 @@ jobs:
 
       - name: Stop grafana docker
         run: docker compose down
+      
+      - name: Print netxms-server logs
+        if: ${{ failure() }}
+        run: docker logs netxms-server
 
       # Uncomment this step to upload the server log to Github artifacts. Remember Github artifacts are public on the Internet if the repository is public.
       # - name: Upload server log
