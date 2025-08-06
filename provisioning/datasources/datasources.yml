@@ -9,6 +9,6 @@ datasources:
     version: 1
     editable: true
     jsonData:
-      serverAddress: 'http://netxms-server:8000/'
+      serverAddress: 'http://localhost:8000/'
     secureJsonData:
       apiKey: $NX_API_KEY
