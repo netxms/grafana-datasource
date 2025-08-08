@@ -217,10 +217,6 @@ jobs:
         if: ${{ always() && steps.run-tests.outcome == 'failure' }}
         run: |
           docker logs radensolutions-netxms-datasource >& grafana-server.log
-      
-      - name: Print netxms-server logs
-        if: ${{ failure() }}
-        run: docker logs netxms-server
 
       - name: Stop grafana docker
         run: docker compose down
