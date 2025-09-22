@@ -29,6 +29,7 @@ test('"Save & test" should be successful when configuration is valid', async ({
   await page.getByRole('textbox', { name: 'API address' }).fill(ds.jsonData.serverAddress ?? '');
   await page.getByRole('textbox', { name: 'API Key' }).fill(ds.secureJsonData?.apiKey ?? '');
   const result = await configPage.saveAndTest();
+  console.error('Save and test result:', result);
   expect(result.ok()).toBeTruthy();
 });
 
