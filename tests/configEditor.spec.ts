@@ -12,22 +12,16 @@ test('"Save & test" should be successful when configuration is valid', async ({
   page,
 }) => {
   const ds = await readProvisionedDataSource<NetxmsSourceOptions, NetXMSSecureJsonData>({ fileName: 'datasources.yml' });
-  console.log('serverAddress:', ds?.jsonData?.serverAddress);
-
-  // Connectivity check
-  if (ds?.jsonData?.serverAddress) {
-    try {
-      const response = await fetch(ds.jsonData.serverAddress);
-      console.log('Connectivity check status:', response.status);
-      console.log('Connectivity check status:', response.json);
-    } catch (err) {
-      console.error('Connectivity check failed:', err);
-    }
-  }
+  // Use environment variable for API key since provisioning file uses $NX_API_KEY syntax
+  const apiKey = process.env.NX_API_KEY ?? ds.secureJsonData?.apiKey ?? '';
+  // Use host.docker.internal for Grafana container connectivity
+  const serverAddress = ds.jsonData.serverAddress ?? '';
+  console.log('serverAddress:', serverAddress);
+  console.log('apiKey length:', apiKey.length);
 
   const configPage = await createDataSourceConfigPage({ type: ds.type });
-  await page.getByRole('textbox', { name: 'API address' }).fill(ds.jsonData.serverAddress ?? '');
-  await page.getByRole('textbox', { name: 'API Key' }).fill(ds.secureJsonData?.apiKey ?? '');
+  await page.getByRole('textbox', { name: 'API address' }).fill(serverAddress);
+  await page.getByRole('textbox', { name: 'API Key' }).fill(apiKey);
   const result = await configPage.saveAndTest();
   console.error('Save and test result:', result);
   expect(result.ok()).toBeTruthy();
