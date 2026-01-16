@@ -65,6 +65,6 @@ The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS,
 
 ## Support
 
-- [Forum](https://netxms.org/forum)
+- [Forum](https://www.netxms.org/forum/index.php)
 - [Telegram](https://telegram.me/netxms)
 - [Issue Tracker](https://dev.raden.solutions/projects/netxms/)
