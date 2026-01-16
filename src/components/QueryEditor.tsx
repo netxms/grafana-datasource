@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { InlineField, Stack, Combobox } from '@grafana/ui';
-import { QueryEditorProps } from '@grafana/data';
+import { InlineField, Stack, Combobox, Select } from '@grafana/ui';
+import { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
 import { NetxmsSourceOptions as NetXMSDataSourceOptions, NetXMSQuery } from '../types';
 
 type Props = QueryEditorProps<DataSource, NetXMSQuery, NetXMSDataSourceOptions>;
 
-type Option = { label: string; value: string };
+type Option = SelectableValue<string>;
 
 export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) {
   const [objectList, setObjectList] = useState<Option[]>([]);
@@ -215,13 +215,13 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       {/* Optional object selector */}
       {(query.queryType === 'alarms' || query.queryType === 'objectQueries') && (
         <InlineField label="Root object" labelWidth={16}>
-          <Combobox
-            id='sourceObjectId'
+          <Select
+            inputId='sourceObjectId'
             value={query.sourceObjectId}
             isClearable={true}
             onChange={ (v) => { onChange({ ...query, sourceObjectId: v?.value }); handleOnRunQuery(); }}
             options={objectList}
-            loading={isLoadingObjects}
+            isLoading={isLoadingObjects}
             placeholder="Root object"
             width={32}
           />
@@ -231,11 +231,11 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       {/* Required object selector */}
       {(query.queryType === 'summaryTables' || query.queryType === 'dciValues' || query.queryType === 'objectStatus') && (
         <InlineField label="Root object" labelWidth={16}>
-          <Combobox
+          <Select
             value={query.sourceObjectId}
             onChange={handleRootObjectChange}
             options={objectList}
-            loading={isLoadingObjects}
+            isLoading={isLoadingObjects}
             placeholder="Root object"
             width={32}
           />
@@ -245,11 +245,11 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
 
       {query.queryType === 'summaryTables' && (
         <InlineField label="Summary table" labelWidth={16}>
-          <Combobox
+          <Select
             value={query.summaryTableId}
             onChange={ (v) => { onChange({ ...query, summaryTableId: v?.value }); handleOnRunQuery(); }}
             options={summaryTableList}
-            loading={isLoadingSummaryTable}
+            isLoading={isLoadingSummaryTable}
             placeholder="Summary table"
             width={32}
           />
@@ -259,11 +259,11 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       {query.queryType === 'objectQueries' && (
         <>
           <InlineField label="Object query" labelWidth={16}>
-            <Combobox
+            <Select
               value={query.objectQueryId}
               onChange={ (v) => { onChange({ ...query, objectQueryId: v?.value }); handleOnRunQuery(); }}
               options={objectQueryList}
-              loading={isLoadingObjectQueries}
+              isLoading={isLoadingObjectQueries}
               placeholder="Select query"
               width={32}
             />
@@ -290,11 +290,12 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
 
       {query.queryType === 'dciValues' && (
         <InlineField label="DCI" labelWidth={16}>
-          <Combobox
+          <Select
             value={query.dciId}
             onChange={ (v) => { onChange({ ...query, dciId: v?.value }); handleOnRunQuery(); }}
             options={dciList}
-            loading={isLoadingDcis}
+            isLoading={isLoadingDcis}
+            placeholder="Select DCI"
             width={32}
           />
         </InlineField>
