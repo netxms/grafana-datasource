@@ -517,10 +517,10 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 			Timeout: 10 * time.Second,
 		}
 
-		timeFrom := q.TimeRange.From.Format(time.UnixDate)
-		timeTo := q.TimeRange.To.Format(time.UnixDate)
+		timeFrom := q.TimeRange.From.Unix()
+		timeTo := q.TimeRange.To.Unix()
 
-		url := joinURL(config.ServerAddress, fmt.Sprintf("v1/objects/%s/data-collection/%s/history?timeFrom=%s&timeTo=%s",
+		url := joinURL(config.ServerAddress, fmt.Sprintf("v1/objects/%s/data-collection/%s/history?timeFrom=%d&timeTo=%d",
 			qm.SourceObjectId, qm.DciId, timeFrom, timeTo))
 
 		request, err := http.NewRequest("GET", url, nil)
