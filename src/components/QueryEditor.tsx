@@ -112,7 +112,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
     }
   }, [query.queryType, query.sourceObjectId, loadObjectList, loadSummaryTableList, loadObjectQueryList, loadDciList]);
 
-  const handleRootObjectChange = (v: { value: string } | null) => {
+  const handleRootObjectChange = (v: SelectableValue<string>) => {
     onChange({ ...query,
       sourceObjectId: v?.value,
       dciId: undefined });
