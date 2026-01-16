@@ -1,50 +1,65 @@
-<!-- This README file is going to be the one displayed on the Grafana.com website for your plugin. Uncomment and replace the content here before publishing.
+# NetXMS Data Source Plugin for Grafana
 
-Remove any remaining comments before publishing as these may be displayed on Grafana.com -->
+The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS, an open-source network management and monitoring platform. This plugin allows you to query alarms, DCI values, summary tables, and more, directly from your NetXMS server.
 
-# NetXMS
+## Features
 
-<!-- To help maximize the impact of your README and improve usability for users, we propose the following loose structure:
-
-**BEFORE YOU BEGIN**
-- Ensure all links are absolute URLs so that they will work when the README is displayed within Grafana and Grafana.com
-- Be inspired ✨
-  - [grafana-polystat-panel](https://github.com/grafana/grafana-polystat-panel)
-  - [volkovlabs-variable-panel](https://github.com/volkovlabs/volkovlabs-variable-panel)
-
-**ADD SOME BADGES**
-
-Badges convey useful information at a glance for users whether in the Catalog or viewing the source code. You can use the generator on [Shields.io](https://shields.io/badges/dynamic-json-badge) together with the Grafana.com API
-to create dynamic badges that update automatically when you publish a new version to the marketplace.
-
-- For the URL parameter use `https://grafana.com/api/plugins/your-plugin-id`.
-- Example queries:
-  - Downloads: `$.downloads`
-  - Catalog Version: `$.version`
-  - Grafana Dependency: `$.grafanaDependency`
-  - Signature Type: `$.versionSignatureType`
-- Optionally, for the logo parameter use `grafana`.
-
-Full example: ![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?logo=grafana&query=$.version&url=https://grafana.com/api/plugins/grafana-polystat-panel&label=Marketplace&prefix=v&color=F47A20)
-
-Consider other [badges](https://shields.io/badges) as you feel appropriate for your project.
-
-## Overview / Introduction
-Provide one or more paragraphs as an introduction to your plugin to help users understand why they should use it.
-
-Consider including screenshots:
-- in [plugin.json](https://grafana.com/developers/plugin-tools/reference/plugin-json#info) include them as relative links.
-- in the README ensure they are absolute URLs.
+- Query NetXMS alarms
+- Show DCI values
+- Query summary tables
+- Object status map
+- Support for custom queries and dynamic dashboards
+- Secure API key authentication
 
 ## Requirements
-List any requirements or dependencies they may need to run the plugin.
+
+- Grafana 10.4.0 or later
+- NetXMS server with WebAPI enabled
 
 ## Getting Started
-Provide a quick start on how to configure and use the plugin.
+
+### NetXMS Server Configuration
+
+1. Enable WebAPI on your NetXMS server by adding `Module=webapi` to `netxmsd.conf`
+2. Restart the NetXMS server
+3. Note: WebAPI uses unencrypted HTTP by default. Consider using nginx, reproxy, traefik, or another SSL offloading solution
+4. In the User Management view, select the user for Grafana and issue a new API key
+
+### Grafana Configuration
+
+1. Navigate to **Configuration > Data Sources**
+2. Add "NetXMS" as a new data source
+3. Configure the following:
+   - **Server Address:** URL of your NetXMS server (e.g., `http://localhost:8000`)
+   - **API Key:** Your NetXMS API key issued in the previous step
+
+## Usage
+
+1. Create a new dashboard and add a panel
+2. Select the NetXMS data source
+3. Choose the query type (alarms, DCI values, summary tables, etc.)
+4. Configure query parameters as needed
+5. Visualize your network data in real time
+
+## Screenshots
+
+![Alarms Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-alarms.png)
+
+![DCI Graph Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-graph.png)
+
+![Object Query Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-object-query.png)
+
+![Status Map Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-statu-map.png)
+
+![Summary Table Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-summary-table.png)
 
 ## Documentation
-If your project has dedicated documentation available for users, provide links here. For help in following Grafana's style recommendations for technical documentation, refer to our [Writer's Toolkit](https://grafana.com/docs/writers-toolkit/).
 
-## Contributing
-Do you want folks to contribute to the plugin or provide feedback through specific means? If so, tell them how!
--->
+- [NetXMS Documentation](https://netxms.com/documentation)
+- [NetXMS Website](https://netxms.com/)
+
+## Support
+
+- [Forum](https://www.netxms.org/forum)
+- [Telegram](https://telegram.me/netxms)
+- [Issue Tracker](https://dev.raden.solutions/projects/netxms/)
