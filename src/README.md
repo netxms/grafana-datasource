@@ -1,5 +1,10 @@
 # NetXMS Data Source Plugin for Grafana
 
+[![Grafana Marketplace](https://img.shields.io/badge/dynamic/json?logo=grafana&query=$.version&url=https://grafana.com/api/plugins/radensolutions-netxms-datasource&label=Marketplace&prefix=v&color=F47A20)](https://grafana.com/grafana/plugins/radensolutions-netxms-datasource/)
+[![Downloads](https://img.shields.io/badge/dynamic/json?logo=grafana&query=$.downloads&url=https://grafana.com/api/plugins/radensolutions-netxms-datasource&label=Downloads&color=F47A20)](https://grafana.com/grafana/plugins/radensolutions-netxms-datasource/)
+[![Grafana](https://img.shields.io/badge/dynamic/json?logo=grafana&query=$.grafanaDependency&url=https://grafana.com/api/plugins/radensolutions-netxms-datasource&label=Grafana&color=F47A20)](https://grafana.com/grafana/plugins/radensolutions-netxms-datasource/)
+[![License](https://img.shields.io/github/license/netxms/grafana-datasource)](https://github.com/netxms/grafana-datasource/blob/master/LICENSE)
+
 The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS, an open-source network management and monitoring platform. This plugin allows you to query alarms, DCI values, summary tables, and more, directly from your NetXMS server.
 
 ## Features
