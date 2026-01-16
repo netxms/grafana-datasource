@@ -553,9 +553,12 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		frame := data.NewFrame(dciData.Description)
 
 		times := make([]time.Time, len(dciData.Values))
-		values := make([]float64, len(dciData.Values))
 
+		// First, try to parse all values as floats
+		isNumeric := true
+		floatValues := make([]float64, len(dciData.Values))
 		var parseError error
+
 		for i, v := range dciData.Values {
 			t, err := time.Parse(time.RFC3339, v.Timestamp)
 			if err != nil {
@@ -566,10 +569,10 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 
 			val, err := strconv.ParseFloat(v.Value, 64)
 			if err != nil {
-				parseError = fmt.Errorf("failed to parse value: %v", err)
-				break
+				isNumeric = false
+			} else {
+				floatValues[i] = val
 			}
-			values[i] = val
 		}
 
 		if parseError != nil {
@@ -577,10 +580,23 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 			continue
 		}
 
-		frame.Fields = append(frame.Fields,
-			data.NewField("time", nil, times),
-			data.NewField("value", map[string]string{"unit": dciData.UnitName}, values),
-		)
+		if isNumeric {
+			// All values are numeric, use float64 field
+			frame.Fields = append(frame.Fields,
+				data.NewField("time", nil, times),
+				data.NewField("value", map[string]string{"unit": dciData.UnitName}, floatValues),
+			)
+		} else {
+			// Some values are not numeric, use string field
+			stringValues := make([]string, len(dciData.Values))
+			for i, v := range dciData.Values {
+				stringValues[i] = v.Value
+			}
+			frame.Fields = append(frame.Fields,
+				data.NewField("time", nil, times),
+				data.NewField("value", nil, stringValues),
+			)
+		}
 
 		response.Responses[q.RefID] = backend.DataResponse{
 			Frames: data.Frames{frame},
