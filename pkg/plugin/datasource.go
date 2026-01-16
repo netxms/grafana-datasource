@@ -96,7 +96,7 @@ type tableQueryConfig struct {
 	url        string
 	frameName  string
 	required   map[string]string
-	formatBody func(map[string]interface{}) map[string]interface{}
+	formatBody func(map[string]interface{}) (map[string]interface{}, error)
 }
 
 func (d *NetXMSDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
@@ -136,7 +136,7 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		Timeout: 10 * time.Second,
 	}
 
-	statusURL := joinURL(config.ServerAddress, "v1/server-info")
+	statusURL := joinURL(config.ServerAddress, "v1/grafana/infinity/alarms")
 
 	var bodyBytes []byte
 	if rootObjectId != "" {
@@ -166,10 +166,11 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 	if err != nil {
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err.Error()))
 	}
+	defer result.Body.Close()
 
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed read response: %v", err.Error()))
+		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err.Error()))
 	}
 
 	if result.StatusCode == http.StatusUnauthorized {
@@ -177,11 +178,7 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 	}
 
 	if result.StatusCode != http.StatusOK {
-		var reasonResp map[string]string
-		if err := json.Unmarshal(body, &reasonResp); err == nil {
-			return backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
-		}
-		return backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), "Request error")
+		return parseErrorResponse(result.StatusCode, body)
 	}
 
 	var alarms []alarmResponse
@@ -252,7 +249,6 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		data.NewField("Last Change", nil, lastChange),
 	)
 
-	defer result.Body.Close()
 	response.Frames = append(response.Frames, frame)
 	return response
 }
@@ -329,14 +325,14 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 		res.Message = fmt.Sprintf("Failed to connect to server: %v", err)
 		return res, nil
 	}
+	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		res.Status = backend.HealthStatusError
-		res.Message = fmt.Sprintf("failed read response: %d (%s)", response.StatusCode, response.Status)
+		res.Message = fmt.Sprintf("failed to read response: %d (%s)", response.StatusCode, response.Status)
 		return res, nil
 	}
-	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		res.Status = backend.HealthStatusError
@@ -345,8 +341,17 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 	}
 
 	var data map[string]interface{}
-	json.Unmarshal([]byte(body), &data)
-	actualVersion := data["version"].(string)
+	if err := json.Unmarshal([]byte(body), &data); err != nil {
+		res.Status = backend.HealthStatusError
+		res.Message = fmt.Sprintf("Failed to parse server response: %v", err)
+		return res, nil
+	}
+	actualVersion, ok := data["version"].(string)
+	if !ok {
+		res.Status = backend.HealthStatusError
+		res.Message = "Server response missing version field"
+		return res, nil
+	}
 	requiredVersion := "5.2.4"
 	if !isVersionGreater(actualVersion, requiredVersion) {
 		fmt.Printf("Server version %s is NOT greater than %s\n", actualVersion, requiredVersion)
@@ -392,13 +397,13 @@ func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.Respo
 		http.Error(rw, "failed to connect to server", http.StatusInternalServerError)
 		return
 	}
+	defer result.Body.Close()
 
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		http.Error(rw, "failed read response", http.StatusInternalServerError)
+		http.Error(rw, "failed to read response", http.StatusInternalServerError)
 		return
 	}
-	defer result.Body.Close()
 
 	// Parse JSON and sort by label
 	var responseData map[string]interface{}
@@ -550,20 +555,26 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		times := make([]time.Time, len(dciData.Values))
 		values := make([]float64, len(dciData.Values))
 
+		var parseError error
 		for i, v := range dciData.Values {
 			t, err := time.Parse(time.RFC3339, v.Timestamp)
 			if err != nil {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse timestamp: %v", err))
-				continue
+				parseError = fmt.Errorf("failed to parse timestamp: %v", err)
+				break
 			}
 			times[i] = t
 
 			val, err := strconv.ParseFloat(v.Value, 64)
 			if err != nil {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse value: %v", err))
-				continue
+				parseError = fmt.Errorf("failed to parse value: %v", err)
+				break
 			}
 			values[i] = val
+		}
+
+		if parseError != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, parseError.Error())
+			continue
 		}
 
 		frame.Fields = append(frame.Fields,
@@ -654,7 +665,11 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 
 		url := joinURL(pluginConfig.ServerAddress, queryConfig.url)
 
-		reqBody := queryConfig.formatBody(qm)
+		reqBody, err := queryConfig.formatBody(qm)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to format request body: %v", err))
+			continue
+		}
 
 		bodyBytes, err := json.Marshal(reqBody)
 		if err != nil {
@@ -690,12 +705,7 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 		}
 
 		if result.StatusCode != http.StatusOK {
-			var reasonResp map[string]string
-			if err := json.Unmarshal(body, &reasonResp); err == nil {
-				response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
-				continue
-			}
-			response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), "Request error")
+			response.Responses[q.RefID] = parseErrorResponse(result.StatusCode, body)
 			continue
 		}
 
@@ -805,24 +815,26 @@ func (d *NetXMSDatasource) handleSummaryTableQuery(ctx context.Context, req *bac
 		required: map[string]string{
 			"summaryTableId": "tableId is required",
 		},
-		formatBody: func(qm map[string]interface{}) map[string]interface{} {
+		formatBody: func(qm map[string]interface{}) (map[string]interface{}, error) {
 			reqBody := make(map[string]interface{})
 
 			if rootObjectId, ok := qm["sourceObjectId"].(string); ok && rootObjectId != "" {
 				rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
-				if err == nil {
-					reqBody["rootObjectId"] = rootObjectIdNum
+				if err != nil {
+					return nil, fmt.Errorf("invalid rootObjectId: %v", err)
 				}
+				reqBody["rootObjectId"] = rootObjectIdNum
 			}
 
 			if tableId, ok := qm["summaryTableId"].(string); ok && tableId != "" {
 				tableIdNum, err := strconv.ParseInt(tableId, 10, 64)
-				if err == nil {
-					reqBody["tableId"] = tableIdNum
+				if err != nil {
+					return nil, fmt.Errorf("invalid tableId: %v", err)
 				}
+				reqBody["tableId"] = tableIdNum
 			}
 
-			return reqBody
+			return reqBody, nil
 		},
 	})
 }
@@ -835,31 +847,34 @@ func (d *NetXMSDatasource) handleObjectQueryQuery(ctx context.Context, req *back
 			"objectQueryId":  "queryId is required",
 			"sourceObjectId": "rootObjectId is required",
 		},
-		formatBody: func(qm map[string]interface{}) map[string]interface{} {
+		formatBody: func(qm map[string]interface{}) (map[string]interface{}, error) {
 			reqBody := make(map[string]interface{})
 
 			if rootObjectId, ok := qm["sourceObjectId"].(string); ok && rootObjectId != "" {
 				rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
-				if err == nil {
-					reqBody["rootObjectId"] = rootObjectIdNum
+				if err != nil {
+					return nil, fmt.Errorf("invalid rootObjectId: %v", err)
 				}
+				reqBody["rootObjectId"] = rootObjectIdNum
 			}
 
 			if queryId, ok := qm["objectQueryId"].(string); ok && queryId != "" {
 				queryIdNum, err := strconv.ParseInt(queryId, 10, 64)
-				if err == nil {
-					reqBody["queryId"] = queryIdNum
+				if err != nil {
+					return nil, fmt.Errorf("invalid queryId: %v", err)
 				}
+				reqBody["queryId"] = queryIdNum
 			}
 
 			if values, ok := qm["queryParameters"].(string); ok && values != "" {
 				var parsedValues []map[string]interface{}
-				if err := json.Unmarshal([]byte(values), &parsedValues); err == nil {
-					reqBody["values"] = parsedValues
+				if err := json.Unmarshal([]byte(values), &parsedValues); err != nil {
+					return nil, fmt.Errorf("invalid queryParameters JSON: %v", err)
 				}
+				reqBody["values"] = parsedValues
 			}
 
-			return reqBody
+			return reqBody, nil
 		},
 	})
 }
@@ -933,12 +948,7 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 		}
 
 		if result.StatusCode != http.StatusOK {
-			var reasonResp map[string]string
-			if err := json.Unmarshal(body, &reasonResp); err == nil {
-				response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
-				continue
-			}
-			response.Responses[q.RefID] = backend.ErrDataResponse(httpStatusToBackendStatus(result.StatusCode), "Request error")
+			response.Responses[q.RefID] = parseErrorResponse(result.StatusCode, body)
 			continue
 		}
 
@@ -983,6 +993,15 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 	}
 
 	return response, nil
+}
+
+// parseErrorResponse extracts error message from response body and returns appropriate DataResponse
+func parseErrorResponse(statusCode int, body []byte) backend.DataResponse {
+	var reasonResp map[string]string
+	if err := json.Unmarshal(body, &reasonResp); err == nil && reasonResp["reason"] != "" {
+		return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
+	}
+	return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), "Request error")
 }
 
 // httpStatusToBackendStatus maps HTTP status codes to backend.Status

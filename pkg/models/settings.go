@@ -29,6 +29,9 @@ func LoadPluginSettings(source backend.DataSourceInstanceSettings) (*PluginSetti
 }
 
 func loadSecretPluginSettings(source map[string]string) *SecretPluginSettings {
+	if source == nil {
+		return &SecretPluginSettings{}
+	}
 	return &SecretPluginSettings{
 		ApiKey: source["apiKey"],
 	}

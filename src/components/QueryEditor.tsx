@@ -30,10 +30,10 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
     try {
       let response;
       switch (type) {
+        case 'objectStatus':
         case 'alarms':
           response = await datasource.getAlarmObjectList();
           break;
-        case 'objectStatus':
         case 'summaryTables':
           response = await datasource.getSummaryTableObjectList();
           break;
@@ -107,7 +107,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         }
         break;
       case 'objectStatus':
-        loadObjectList('summaryTables');
+        loadObjectList('objectStatus');
         break;
     }
   }, [query.queryType, query.sourceObjectId, loadObjectList, loadSummaryTableList, loadObjectQueryList, loadDciList]);
@@ -190,7 +190,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         loadObjectList('dciValues');
         break;
       case 'objectStatus':
-        loadObjectList('summaryTables');
+        loadObjectList('objectStatus');
         break;
     }
   };
@@ -247,7 +247,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         <InlineField label="Summary table" labelWidth={16}>
           <Combobox
             value={query.summaryTableId}
-            onChange={ (v) => { onChange({ ...query, summaryTableId: v.value }); handleOnRunQuery(); }}
+            onChange={ (v) => { onChange({ ...query, summaryTableId: v?.value }); handleOnRunQuery(); }}
             options={summaryTableList}
             loading={isLoadingSummaryTable}
             placeholder="Summary table"
@@ -261,7 +261,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
           <InlineField label="Object query" labelWidth={16}>
             <Combobox
               value={query.objectQueryId}
-              onChange={ (v) => { onChange({ ...query, objectQueryId: v.value }); handleOnRunQuery(); }}
+              onChange={ (v) => { onChange({ ...query, objectQueryId: v?.value }); handleOnRunQuery(); }}
               options={objectQueryList}
               loading={isLoadingObjectQueries}
               placeholder="Select query"
@@ -292,7 +292,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         <InlineField label="DCI" labelWidth={16}>
           <Combobox
             value={query.dciId}
-            onChange={ (v) => { onChange({ ...query, dciId: v.value }); handleOnRunQuery(); }}
+            onChange={ (v) => { onChange({ ...query, dciId: v?.value }); handleOnRunQuery(); }}
             options={dciList}
             loading={isLoadingDcis}
             width={32}
