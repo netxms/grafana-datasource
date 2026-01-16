@@ -43,15 +43,15 @@ The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS,
 
 ## Screenshots
 
-![Alarms Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-alarms.png)
+![Alarms Dashboard](https://raw.githubusercontent.com/netxms/grafana-datasource/master/src/img/dashboard-alarms.png)
 
-![DCI Graph Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-graph.png)
+![DCI Graph Dashboard](https://raw.githubusercontent.com/netxms/grafana-datasource/master/src/img/dashboard-graph.png)
 
-![Object Query Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-object-query.png)
+![Object Query Dashboard](https://raw.githubusercontent.com/netxms/grafana-datasource/master/src/img/dashboard-object-query.png)
 
-![Status Map Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-statu-map.png)
+![Status Map Dashboard](https://raw.githubusercontent.com/netxms/grafana-datasource/master/src/img/dashboard-statu-map.png)
 
-![Summary Table Dashboard](/public/plugins/radensolutions-netxms-datasource/img/dashboard-summary-table.png)
+![Summary Table Dashboard](https://raw.githubusercontent.com/netxms/grafana-datasource/master/src/img/dashboard-summary-table.png)
 
 ## Documentation
 
@@ -60,6 +60,6 @@ The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS,
 
 ## Support
 
-- [Forum](https://www.netxms.org/forum)
+- [Forum](https://netxms.org/forum)
 - [Telegram](https://telegram.me/netxms)
 - [Issue Tracker](https://dev.raden.solutions/projects/netxms/)
