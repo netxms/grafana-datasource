@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
@@ -354,7 +355,7 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 	}
 	requiredVersion := "5.2.4"
 	if !isVersionGreater(actualVersion, requiredVersion) {
-		fmt.Printf("Server version %s is NOT greater than %s\n", actualVersion, requiredVersion)
+		log.DefaultLogger.Warn("Server version is below required minimum", "actual", actualVersion, "required", requiredVersion)
 		res.Status = backend.HealthStatusError
 		res.Message = fmt.Sprintf("Server version (current: %s) should be equal or greater than %s", actualVersion, requiredVersion)
 		return res, nil
