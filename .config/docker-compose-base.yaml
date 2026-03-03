@@ -23,6 +23,8 @@ services:
       - ../provisioning:/etc/grafana/provisioning
       - ..:/root/radensolutions-netxms-datasource
 
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       NODE_ENV: development
       GF_LOG_FILTERS: plugin.radensolutions-netxms-datasource:debug

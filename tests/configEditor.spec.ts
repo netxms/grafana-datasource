@@ -20,8 +20,8 @@ test('"Save & test" should be successful when configuration is valid', async ({
   console.log('apiKey length:', apiKey.length);
 
   const configPage = await createDataSourceConfigPage({ type: ds.type });
-  await page.getByRole('textbox', { name: 'API address' }).fill(serverAddress);
-  await page.getByRole('textbox', { name: 'API Key' }).fill(apiKey);
+  await page.getByPlaceholder('Enter the address').fill(serverAddress);
+  await page.getByPlaceholder('Enter your API key').fill(apiKey);
   const result = await configPage.saveAndTest();
   console.error('Save and test result:', result);
   expect(result.ok()).toBeTruthy();
@@ -34,7 +34,7 @@ test('"Save & test" should fail when configuration is invalid', async ({
 }) => {
   const ds = await readProvisionedDataSource<NetxmsSourceOptions, NetXMSSecureJsonData>({ fileName: 'datasources.yml' });
   const configPage = await createDataSourceConfigPage({ type: ds.type });
-  await page.getByRole('textbox', { name: 'API address' }).fill(ds.jsonData.serverAddress ?? '');
+  await page.getByPlaceholder('Enter the address').fill(ds.jsonData.serverAddress ?? '');
   await expect(configPage.saveAndTest()).not.toBeOK();
   await expect(configPage).toHaveAlert('error', { hasText: 'API key is missing' });
 });
