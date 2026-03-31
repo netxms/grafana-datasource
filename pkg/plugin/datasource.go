@@ -40,7 +40,7 @@ type NetXMSDatasource struct {
 	resourceHandler backend.CallResourceHandler
 }
 
-// Create new NetXMS datashource instance
+// NewDatasource creates a new NetXMS datasource instance
 func NewDatasource(_ context.Context, _ backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	ds := &NetXMSDatasource{}
 	mux := http.NewServeMux()
@@ -93,15 +93,24 @@ type dciValueResponse struct {
 	} `json:"values"`
 }
 
+type requiredField struct {
+	field   string
+	message string
+}
+
 type tableQueryConfig struct {
 	url        string
 	frameName  string
-	required   map[string]string
-	formatBody func(map[string]interface{}) (map[string]interface{}, error)
+	required   []requiredField
+	formatBody func(map[string]any) (map[string]any, error)
 }
 
 func (d *NetXMSDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	return d.queryHandler.QueryData(ctx, req)
+	resp, err := d.queryHandler.QueryData(ctx, req)
+	if err != nil {
+		return resp, fmt.Errorf("query data: %w", err)
+	}
+	return resp, nil
 }
 
 // QueryData handles multiple queries and returns multiple responses.
@@ -126,7 +135,7 @@ func (d *NetXMSDatasource) handleAlarmQuery(ctx context.Context, req *backend.Qu
 	return response, nil
 }
 
-func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, rootObjectId string) backend.DataResponse {
+func (d *NetXMSDatasource) query(ctx context.Context, pCtx backend.PluginContext, rootObjectId string) backend.DataResponse {
 	var response backend.DataResponse
 	config, err := models.LoadPluginSettings(*pCtx.DataSourceInstanceSettings)
 	if err != nil {
@@ -141,11 +150,11 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 
 	var bodyBytes []byte
 	if rootObjectId != "" {
-		rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
-		if err != nil {
-			return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("invalid rootObjectId: %v", err.Error()))
+		rootObjectIdNum, parseErr := strconv.ParseInt(rootObjectId, 10, 64)
+		if parseErr != nil {
+			return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("invalid rootObjectId: %v", parseErr.Error()))
 		}
-		body := map[string]interface{}{
+		body := map[string]any{
 			"rootObjectId": rootObjectIdNum,
 		}
 		bodyBytes, err = json.Marshal(body)
@@ -156,12 +165,12 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		bodyBytes = []byte(`{}`)
 	}
 
-	request, err := http.NewRequest("POST", statusURL, bytes.NewBuffer(bodyBytes))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, statusURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err.Error()))
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
+	request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
 
 	result, err := client.Do(request)
 	if err != nil {
@@ -258,11 +267,8 @@ func (d *NetXMSDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 func isVersionGreater(actualVersion, requireVersion string) bool {
 	actualVersionParts := strings.Split(actualVersion, ".")
 	requiredVersionParts := strings.Split(requireVersion, ".")
-	maxLen := len(actualVersionParts)
-	if len(requiredVersionParts) > maxLen {
-		maxLen = len(requiredVersionParts)
-	}
-	for i := 0; i < maxLen; i++ {
+	maxLen := max(len(actualVersionParts), len(requiredVersionParts))
+	for i := range maxLen {
 		var actualVersionNum, requiredVersionNum int
 		if i < len(actualVersionParts) {
 			actualVersionNum, _ = strconv.Atoi(actualVersionParts[i])
@@ -284,7 +290,7 @@ func isVersionGreater(actualVersion, requireVersion string) bool {
 // The main use case for these health checks is the test button on the
 // datasource configuration page which allows users to verify that
 // a datasource is working as expected.
-func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+func (d *NetXMSDatasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
 	res := &backend.CheckHealthResult{}
 	config, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
 
@@ -311,14 +317,14 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 	}
 
 	statusURL := joinURL(config.ServerAddress, "v1/server-info")
-	request, err := http.NewRequest("GET", statusURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, http.NoBody)
 	if err != nil {
 		res.Status = backend.HealthStatusError
 		res.Message = fmt.Sprintf("Failed to create request: %v", err)
 		return res, nil
 	}
 
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
+	request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
 
 	response, err := client.Do(request)
 	if err != nil {
@@ -341,13 +347,13 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 		return res, nil
 	}
 
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
+	var serverInfo map[string]any
+	if err := json.Unmarshal(body, &serverInfo); err != nil {
 		res.Status = backend.HealthStatusError
 		res.Message = fmt.Sprintf("Failed to parse server response: %v", err)
 		return res, nil
 	}
-	actualVersion, ok := data["version"].(string)
+	actualVersion, ok := serverInfo["version"].(string)
 	if !ok {
 		res.Status = backend.HealthStatusError
 		res.Message = "Server response missing version field"
@@ -368,11 +374,14 @@ func (d *NetXMSDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 }
 
 func (ds *NetXMSDatasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
-	return ds.resourceHandler.CallResource(ctx, req, sender)
+	if err := ds.resourceHandler.CallResource(ctx, req, sender); err != nil {
+		return fmt.Errorf("call resource: %w", err)
+	}
+	return nil
 }
 
 // This method handles all request to get lists of items in format name : id
-func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.ResponseWriter, req *http.Request) {
+func (ds *NetXMSDatasource) handleQuery(url string, rw http.ResponseWriter, req *http.Request) {
 	pCtx := backend.PluginConfigFromContext(req.Context())
 	config, err := models.LoadPluginSettings(*pCtx.DataSourceInstanceSettings)
 	if err != nil {
@@ -385,13 +394,13 @@ func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.Respo
 	}
 
 	statusURL := joinURL(config.ServerAddress, url)
-	request, err := http.NewRequest(method, statusURL, nil)
+	request, err := http.NewRequestWithContext(req.Context(), http.MethodGet, statusURL, http.NoBody)
 	if err != nil {
 		http.Error(rw, "failed to create request", http.StatusInternalServerError)
 		return
 	}
 
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
+	request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
 
 	result, err := client.Do(request)
 	if err != nil {
@@ -407,37 +416,28 @@ func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.Respo
 	}
 
 	// Parse JSON and sort by label
-	var responseData map[string]interface{}
-	if err := json.Unmarshal(body, &responseData); err != nil {
-		// If parsing fails, return original response
-		rw.Header().Add("Content-Type", "application/json")
-		rw.WriteHeader(http.StatusOK)
-		rw.Write(body)
+	var responseData map[string]any
+	if unmarshalErr := json.Unmarshal(body, &responseData); unmarshalErr != nil {
+		writeJSONResponse(rw, body)
 		return
 	}
 
 	// Check if "objects" field exists and is an array
-	objects, ok := responseData["objects"].([]interface{})
+	objects, ok := responseData["objects"].([]any)
 	if !ok {
-		// If no "objects" field, return original response
-		rw.Header().Add("Content-Type", "application/json")
-		rw.WriteHeader(http.StatusOK)
-		rw.Write(body)
+		writeJSONResponse(rw, body)
 		return
 	}
 
 	// Convert to slice of maps for sorting
-	jsonData := make([]map[string]interface{}, len(objects))
+	jsonData := make([]map[string]any, len(objects))
 	for i, obj := range objects {
-		if objMap, ok := obj.(map[string]interface{}); ok {
-			jsonData[i] = objMap
-		} else {
-			// If conversion fails, return original response
-			rw.Header().Add("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusOK)
-			rw.Write(body)
+		objMap, ok := obj.(map[string]any)
+		if !ok {
+			writeJSONResponse(rw, body)
 			return
 		}
+		jsonData[i] = objMap
 	}
 
 	// Sort by name field
@@ -460,33 +460,31 @@ func (ds *NetXMSDatasource) handleQuery(url string, method string, rw http.Respo
 		return
 	}
 
-	rw.Header().Add("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusOK)
-	rw.Write(sortedBody)
+	writeJSONResponse(rw, sortedBody)
 }
 
 func (ds *NetXMSDatasource) handleAlarmObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/grafana/object-list?filter=alarm", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=alarm", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleDciObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/grafana/object-list?filter=dci", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=dci", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleSummaryTables(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/grafana/summary-table-list", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/summary-table-list", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleSummaryTableObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/grafana/object-list?filter=summary", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=summary", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleObjectQueries(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/grafana/query-list", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/query-list", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleObjectQueryObjects(rw http.ResponseWriter, req *http.Request) {
-	ds.handleQuery("/v1/grafana/object-list?filter=query", "GET", rw, req)
+	ds.handleQuery("/v1/grafana/object-list?filter=query", rw, req)
 }
 
 func (ds *NetXMSDatasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
@@ -495,8 +493,12 @@ func (ds *NetXMSDatasource) handleDciList(rw http.ResponseWriter, req *http.Requ
 		http.Error(rw, "missing objectId parameter", http.StatusBadRequest)
 		return
 	}
+	if _, err := strconv.ParseInt(objectID, 10, 64); err != nil {
+		http.Error(rw, "objectId must be numeric", http.StatusBadRequest)
+		return
+	}
 	path := fmt.Sprintf("/v1/grafana/objects/%s/dci-list", objectID)
-	ds.handleQuery(path, "GET", rw, req)
+	ds.handleQuery(path, rw, req)
 }
 
 func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
@@ -505,6 +507,15 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		var qm queryModel
 		if err := json.Unmarshal(q.JSON, &qm); err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("json unmarshal: %v", err.Error()))
+			continue
+		}
+
+		if _, err := strconv.ParseInt(qm.SourceObjectId, 10, 64); err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, "sourceObjectId must be numeric")
+			continue
+		}
+		if _, err := strconv.ParseInt(qm.DciId, 10, 64); err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, "dciId must be numeric")
 			continue
 		}
 
@@ -524,24 +535,34 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		url := joinURL(config.ServerAddress, fmt.Sprintf("v1/objects/%s/data-collection/%s/history?timeFrom=%d&timeTo=%d",
 			qm.SourceObjectId, qm.DciId, timeFrom, timeTo))
 
-		request, err := http.NewRequest("GET", url, nil)
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
 			continue
 		}
 
-		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Secrets.ApiKey))
+		request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
 
 		result, err := client.Do(request)
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
 			continue
 		}
-		defer result.Body.Close()
 
 		body, err := io.ReadAll(result.Body)
+		result.Body.Close()
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
+			continue
+		}
+
+		if result.StatusCode == http.StatusUnauthorized {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
+			continue
+		}
+
+		if result.StatusCode != http.StatusOK {
+			response.Responses[q.RefID] = parseErrorResponse(result.StatusCode, body)
 			continue
 		}
 
@@ -563,7 +584,7 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		for i, v := range dciData.Values {
 			t, err := time.Parse(time.RFC3339, v.Timestamp)
 			if err != nil {
-				parseError = fmt.Errorf("failed to parse timestamp: %v", err)
+				parseError = fmt.Errorf("failed to parse timestamp: %w", err)
 				break
 			}
 			times[i] = t
@@ -606,20 +627,10 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 	return response, nil
 }
 
-type orderedMap struct {
-	keys   []string
-	values map[string]interface{}
-}
-
-func decodeOrderedJSON(data []byte) (*orderedMap, error) {
-	om := &orderedMap{
-		keys:   make([]string, 0),
-		values: make(map[string]interface{}),
-	}
-
+func decodeJSONKeyOrder(rawData []byte) ([]string, error) {
 	var raw json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
+	if err := json.Unmarshal(rawData, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshal raw JSON: %w", err)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -627,47 +638,53 @@ func decodeOrderedJSON(data []byte) (*orderedMap, error) {
 		return nil, fmt.Errorf("expected object, got %v", token)
 	}
 
+	var keys []string
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read key token: %w", err)
 		}
 		keyStr, ok := key.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected string key, got %v", key)
 		}
 
-		var value interface{}
+		var value any
 		if err := dec.Decode(&value); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode value for key %q: %w", keyStr, err)
 		}
 
-		om.keys = append(om.keys, keyStr)
-		om.values[keyStr] = value
+		keys = append(keys, keyStr)
 	}
 
 	if _, err := dec.Token(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read closing token: %w", err)
 	}
 
-	return om, nil
+	return keys, nil
 }
 
-func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.QueryDataRequest, queryConfig tableQueryConfig) (*backend.QueryDataResponse, error) {
+//nolint:gocyclo // complex query handling with multiple validation paths and dynamic column types
+func (d *NetXMSDatasource) handleTableQuery(ctx context.Context, req *backend.QueryDataRequest, queryConfig tableQueryConfig) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
 
 	for _, q := range req.Queries {
-		var qm map[string]interface{}
+		var qm map[string]any
 		if err := json.Unmarshal(q.JSON, &qm); err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("json unmarshal: %v", err.Error()))
 			continue
 		}
 
-		for field, message := range queryConfig.required {
-			if value, ok := qm[field].(string); !ok || value == "" {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, message)
-				continue
+		valid := true
+		for _, req := range queryConfig.required {
+			if value, ok := qm[req.field].(string); !ok || value == "" {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, req.message)
+				valid = false
+				break
 			}
+		}
+		if !valid {
+			continue
 		}
 
 		pluginConfig, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
@@ -694,23 +711,23 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 			continue
 		}
 
-		request, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(bodyBytes))
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
 			continue
 		}
 
 		request.Header.Set("Content-Type", "application/json")
-		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", pluginConfig.Secrets.ApiKey))
+		request.Header.Add("Authorization", "Bearer "+pluginConfig.Secrets.ApiKey)
 
 		result, err := client.Do(request)
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
 			continue
 		}
-		defer result.Body.Close()
 
 		body, err := io.ReadAll(result.Body)
+		result.Body.Close()
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
 			continue
@@ -726,7 +743,7 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 			continue
 		}
 
-		var tableResponse []map[string]interface{}
+		var tableResponse []map[string]any
 		if err := json.Unmarshal(body, &tableResponse); err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
 			continue
@@ -734,7 +751,7 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 
 		frame := data.NewFrame(queryConfig.frameName)
 
-		if len(tableResponse) > 0 {
+		if len(tableResponse) > 0 { //nolint:nestif // ordered column extraction requires nested decoding
 			dec := json.NewDecoder(bytes.NewReader(body))
 			if token, err := dec.Token(); err != nil || token != json.Delim('[') {
 				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("expected array, got %v", token))
@@ -752,19 +769,19 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 				continue
 			}
 
-			orderedData, err := decodeOrderedJSON(firstObject)
+			columnOrder, err := decodeJSONKeyOrder(firstObject)
 			if err != nil {
 				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse first row: %v", err))
 				continue
 			}
 
-			columnValues := make(map[string][]interface{})
-			for _, columnName := range orderedData.keys {
-				columnValues[columnName] = make([]interface{}, len(tableResponse))
+			columnValues := make(map[string][]any)
+			for _, columnName := range columnOrder {
+				columnValues[columnName] = make([]any, len(tableResponse))
 			}
 
 			for i, row := range tableResponse {
-				for _, columnName := range orderedData.keys {
+				for _, columnName := range columnOrder {
 					val := row[columnName]
 					if val == nil {
 						columnValues[columnName][i] = nil
@@ -782,7 +799,7 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 						columnValues[columnName][i] = float64(v)
 					case bool:
 						columnValues[columnName][i] = v
-					case []interface{}:
+					case []any:
 						columnValues[columnName][i] = fmt.Sprintf("%v", v)
 					default:
 						columnValues[columnName][i] = fmt.Sprintf("%v", v)
@@ -790,7 +807,7 @@ func (d *NetXMSDatasource) handleTableQuery(_ context.Context, req *backend.Quer
 				}
 			}
 
-			for _, columnName := range orderedData.keys {
+			for _, columnName := range columnOrder {
 				values := columnValues[columnName]
 				var field *data.Field
 				if len(values) > 0 && values[0] != nil {
@@ -829,16 +846,16 @@ func (d *NetXMSDatasource) handleSummaryTableQuery(ctx context.Context, req *bac
 	return d.handleTableQuery(ctx, req, tableQueryConfig{
 		url:       "/v1/grafana/infinity/summary-table",
 		frameName: "summary-table",
-		required: map[string]string{
-			"summaryTableId": "tableId is required",
+		required: []requiredField{
+			{"summaryTableId", "tableId is required"},
 		},
-		formatBody: func(qm map[string]interface{}) (map[string]interface{}, error) {
-			reqBody := make(map[string]interface{})
+		formatBody: func(qm map[string]any) (map[string]any, error) {
+			reqBody := make(map[string]any)
 
 			if rootObjectId, ok := qm["sourceObjectId"].(string); ok && rootObjectId != "" {
 				rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
 				if err != nil {
-					return nil, fmt.Errorf("invalid rootObjectId: %v", err)
+					return nil, fmt.Errorf("invalid rootObjectId: %w", err)
 				}
 				reqBody["rootObjectId"] = rootObjectIdNum
 			}
@@ -846,7 +863,7 @@ func (d *NetXMSDatasource) handleSummaryTableQuery(ctx context.Context, req *bac
 			if tableId, ok := qm["summaryTableId"].(string); ok && tableId != "" {
 				tableIdNum, err := strconv.ParseInt(tableId, 10, 64)
 				if err != nil {
-					return nil, fmt.Errorf("invalid tableId: %v", err)
+					return nil, fmt.Errorf("invalid tableId: %w", err)
 				}
 				reqBody["tableId"] = tableIdNum
 			}
@@ -860,17 +877,16 @@ func (d *NetXMSDatasource) handleObjectQueryQuery(ctx context.Context, req *back
 	return d.handleTableQuery(ctx, req, tableQueryConfig{
 		url:       "/v1/grafana/infinity/object-query",
 		frameName: "object-query",
-		required: map[string]string{
-			"objectQueryId":  "queryId is required",
-			"sourceObjectId": "rootObjectId is required",
+		required: []requiredField{
+			{"objectQueryId", "queryId is required"},
 		},
-		formatBody: func(qm map[string]interface{}) (map[string]interface{}, error) {
-			reqBody := make(map[string]interface{})
+		formatBody: func(qm map[string]any) (map[string]any, error) {
+			reqBody := make(map[string]any)
 
 			if rootObjectId, ok := qm["sourceObjectId"].(string); ok && rootObjectId != "" {
 				rootObjectIdNum, err := strconv.ParseInt(rootObjectId, 10, 64)
 				if err != nil {
-					return nil, fmt.Errorf("invalid rootObjectId: %v", err)
+					return nil, fmt.Errorf("invalid rootObjectId: %w", err)
 				}
 				reqBody["rootObjectId"] = rootObjectIdNum
 			}
@@ -878,15 +894,15 @@ func (d *NetXMSDatasource) handleObjectQueryQuery(ctx context.Context, req *back
 			if queryId, ok := qm["objectQueryId"].(string); ok && queryId != "" {
 				queryIdNum, err := strconv.ParseInt(queryId, 10, 64)
 				if err != nil {
-					return nil, fmt.Errorf("invalid queryId: %v", err)
+					return nil, fmt.Errorf("invalid queryId: %w", err)
 				}
 				reqBody["queryId"] = queryIdNum
 			}
 
 			if values, ok := qm["queryParameters"].(string); ok && values != "" {
-				var parsedValues []map[string]interface{}
+				var parsedValues []map[string]any
 				if err := json.Unmarshal([]byte(values), &parsedValues); err != nil {
-					return nil, fmt.Errorf("invalid queryParameters JSON: %v", err)
+					return nil, fmt.Errorf("invalid queryParameters JSON: %w", err)
 				}
 				reqBody["values"] = parsedValues
 			}
@@ -923,12 +939,14 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 
 		url := joinURL(pluginConfig.ServerAddress, "/v1/grafana/objects-status")
 
-		reqBody := map[string]interface{}{}
+		reqBody := map[string]any{}
 		if qm.SourceObjectId != "" {
-			rootObjectIdNum, err := strconv.ParseInt(qm.SourceObjectId, 10, 64)
-			if err == nil {
-				reqBody["rootObjectId"] = rootObjectIdNum
+			rootObjectIdNum, parseErr := strconv.ParseInt(qm.SourceObjectId, 10, 64)
+			if parseErr != nil {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, "sourceObjectId must be numeric")
+				continue
 			}
+			reqBody["rootObjectId"] = rootObjectIdNum
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)
@@ -937,23 +955,23 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 			continue
 		}
 
-		request, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(bodyBytes))
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
 			continue
 		}
 
 		request.Header.Set("Content-Type", "application/json")
-		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", pluginConfig.Secrets.ApiKey))
+		request.Header.Add("Authorization", "Bearer "+pluginConfig.Secrets.ApiKey)
 
 		result, err := client.Do(request)
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
 			continue
 		}
-		defer result.Body.Close()
 
 		body, err := io.ReadAll(result.Body)
+		result.Body.Close()
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
 			continue
@@ -970,7 +988,7 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 		}
 
 		var statusData []objectStatusResponse
-		if err := json.Unmarshal([]byte(body), &statusData); err != nil {
+		if err := json.Unmarshal(body, &statusData); err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
 			continue
 		}
@@ -987,16 +1005,21 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 			"rgb(138, 0, 143)",   // Testing
 		}
 
-		var frames data.Frames
+		frames := make(data.Frames, 0, len(statusData))
 		for _, obj := range statusData {
 			frame := data.NewFrame(obj.Name)
+
+			statusColor := "rgb(128, 128, 128)"
+			if obj.Status >= 0 && int(obj.Status) < len(color) {
+				statusColor = color[obj.Status]
+			}
 
 			// Use DisplayName to show object name in stat panel
 			nameField := data.NewField("Name", nil, []string{obj.Name})
 			nameField.Config = &data.FieldConfig{
 				Mappings: data.ValueMappings{
 					data.ValueMapper{
-						obj.Name: {Text: obj.Name, Color: color[obj.Status]},
+						obj.Name: {Text: obj.Name, Color: statusColor},
 					},
 				},
 			}
@@ -1016,7 +1039,7 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 func parseErrorResponse(statusCode int, body []byte) backend.DataResponse {
 	var reasonResp map[string]string
 	if err := json.Unmarshal(body, &reasonResp); err == nil && reasonResp["reason"] != "" {
-		return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), fmt.Sprintf("Request error: %s", reasonResp["reason"]))
+		return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), "Request error: "+reasonResp["reason"])
 	}
 	return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), "Request error")
 }
@@ -1039,6 +1062,12 @@ func httpStatusToBackendStatus(code int) backend.Status {
 		return backend.StatusInternal
 	}
 	return backend.StatusUnknown
+}
+
+func writeJSONResponse(rw http.ResponseWriter, body []byte) {
+	rw.Header().Add("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+	_, _ = rw.Write(body)
 }
 
 func joinURL(base, path string) string {

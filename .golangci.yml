@@ -57,6 +57,7 @@ linters:
         - G204 # subprocess with variable, core functionality of the tool
         - G703 # path traversal taint analysis, config paths from trusted sources
         - G705 # XSS taint analysis, CLI stdout and JSON API responses
+        - G704 # SSRF taint analysis, URLs built from trusted admin config
         - G706 # log injection taint analysis, logs to stderr
     exhaustive:
       default-signifies-exhaustive: true
@@ -162,6 +163,7 @@ linters:
         text: "G104: Errors unhandled"
     paths:
       - vendor
+      - node_modules
       - third_party$
       - builtin$
       - examples$

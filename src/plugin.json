@@ -5,7 +5,7 @@
   "id": "radensolutions-netxms-datasource",
   "metrics": true,
   "backend": true,
-  "executable": "gpx_net_xms",
+  "executable": "gpx_netxms",
   "info": {
     "description": "NetXMS datasource for Grafana",
     "author": {
