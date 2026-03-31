@@ -59,7 +59,7 @@ export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSou
         return !!(query.sourceObjectId && query.summaryTableId);
 
       case 'objectQueries':
-        // sourceObjectId, objectQueryId are required
+        // objectQueryId is required; sourceObjectId is optional
         // queryParameters is optional but must be valid JSON if provided
         if (!query.objectQueryId) {
           return false;
