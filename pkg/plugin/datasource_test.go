@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,9 +14,6 @@ import (
 // mockAlarmResponse creates a test server that returns mock alarm data
 func mockAlarmResponse() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Debug print headers
-		log.Printf("Mock server received headers: %v", r.Header)
-
 		// Verify request headers
 		if r.Header.Get("Authorization") != "Bearer test-key" {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -40,7 +36,7 @@ func mockAlarmResponse() *httptest.Server {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(alarms)
+		_ = json.NewEncoder(w).Encode(alarms)
 	}))
 }
 
@@ -70,10 +66,10 @@ func TestQueryData(t *testing.T) {
 	}
 
 	// Create a query model
-	queryModel := queryModel{
+	qm := queryModel{
 		SourceObjectId: "123",
 	}
-	queryJSON, err := json.Marshal(queryModel)
+	queryJSON, err := json.Marshal(qm)
 	if err != nil {
 		t.Fatal(err)
 	}
