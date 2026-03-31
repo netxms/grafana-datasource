@@ -44,3 +44,6 @@ ci/
 .idea
 
 .eslintcache
+
+# ralphex progress logs
+.ralphex/progress/
