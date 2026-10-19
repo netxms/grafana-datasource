@@ -1,0 +1,26 @@
+# Runs the full Grafana plugin validator (including the osv-scanner vulnerability check)
+# weekly and on PRs that change dependencies. A failed scheduled run makes GitHub send an
+# email to whoever last changed the cron line below, so new vulnerabilities, and expired
+# exceptions in .github/osv-scanner-validator.toml, are reported without waiting for a release.
+name: Security scan
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - package.json
+      - yarn.lock
+      - go.mod
+      - go.sum
+      - .github/osv-scanner-validator.toml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/build-plugin.yml
+    with:
+      sign: false

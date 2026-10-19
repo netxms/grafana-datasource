@@ -21,3 +21,5 @@ jobs:
       - uses: grafana/plugin-actions/create-plugin-update@main
         with:
           token: ${{ github.token }}
+          base: ${{ github.event.repository.default_branch }}
+          node-version: '22'

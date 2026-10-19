@@ -1,0 +1,144 @@
+# Reusable workflow: builds, tests, optionally signs, packages and validates the plugin,
+# then uploads the zip + sha1 as a workflow artifact. Used by release.yml and security-scan.yml.
+#
+# The Grafana plugin validator is BLOCKING. Vulnerabilities without an upstream fix can be
+# excepted, with an expiry date, in .github/osv-scanner-validator.toml.
+name: Build plugin
+
+on:
+  workflow_call:
+    inputs:
+      sign:
+        description: Sign the plugin with GRAFANA_ACCESS_POLICY_TOKEN
+        type: boolean
+        default: false
+    secrets:
+      GRAFANA_ACCESS_POLICY_TOKEN:
+        required: false
+    outputs:
+      artifact-name:
+        description: Name of the uploaded workflow artifact with the zip and sha1
+        value: ${{ jobs.build.outputs.artifact-name }}
+      archive:
+        value: ${{ jobs.build.outputs.archive }}
+      archive-sha1sum:
+        value: ${{ jobs.build.outputs.archive-sha1sum }}
+      plugin-version:
+        value: ${{ jobs.build.outputs.plugin-version }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: plugin-package
+      archive: ${{ steps.metadata.outputs.archive }}
+      archive-sha1sum: ${{ steps.metadata.outputs.archive-sha1sum }}
+      plugin-version: ${{ steps.metadata.outputs.plugin-version }}
+    env:
+      GRAFANA_ACCESS_POLICY_TOKEN: ${{ inputs.sign && secrets.GRAFANA_ACCESS_POLICY_TOKEN || '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Prepare Yarn
+        run: corepack prepare yarn@4.9.2 --activate
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Check types
+        run: yarn run typecheck
+
+      - name: Lint
+        run: yarn run lint
+
+      - name: Unit tests
+        run: yarn run test:ci
+
+      - name: Build frontend
+        run: yarn run build
+
+      - name: Setup Go environment
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+
+      - name: Test backend
+        uses: magefile/mage-action@v4
+        with:
+          version: latest
+          args: coverage
+
+      - name: Build backend
+        uses: magefile/mage-action@v4
+        with:
+          version: latest
+          args: buildAll
+
+      - name: Fail if signing was requested without a token
+        if: ${{ inputs.sign && env.GRAFANA_ACCESS_POLICY_TOKEN == '' }}
+        run: |
+          echo "::error::GRAFANA_ACCESS_POLICY_TOKEN secret is not set, cannot sign the plugin"
+          exit 1
+
+      - name: Sign plugin
+        if: ${{ inputs.sign }}
+        run: yarn run sign
+
+      - name: Get plugin metadata
+        id: metadata
+        run: |
+          PLUGIN_ID=$(jq -r .id dist/plugin.json)
+          PLUGIN_VERSION=$(jq -r .info.version dist/plugin.json)
+          {
+            echo "plugin-id=${PLUGIN_ID}"
+            echo "plugin-version=${PLUGIN_VERSION}"
+            echo "archive=${PLUGIN_ID}-${PLUGIN_VERSION}.zip"
+            echo "archive-sha1sum=${PLUGIN_ID}-${PLUGIN_VERSION}.zip.sha1"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check that tag matches plugin version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          PLUGIN_VERSION: ${{ steps.metadata.outputs.plugin-version }}
+        run: |
+          if [ "v${PLUGIN_VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Plugin version ${PLUGIN_VERSION} does not match tag ${GITHUB_REF_NAME}. Tag must be v${PLUGIN_VERSION}"
+            exit 1
+          fi
+
+      - name: Package plugin
+        env:
+          PLUGIN_ID: ${{ steps.metadata.outputs.plugin-id }}
+          PLUGIN_ARCHIVE: ${{ steps.metadata.outputs.archive }}
+          PLUGIN_ARCHIVE_SHA1SUM: ${{ steps.metadata.outputs.archive-sha1sum }}
+        run: |
+          mv dist "$PLUGIN_ID"
+          chmod 0755 "$PLUGIN_ID"/gpx_*
+          zip -r "$PLUGIN_ARCHIVE" "$PLUGIN_ID"
+          sha1sum "$PLUGIN_ARCHIVE" | cut -f1 -d' ' > "$PLUGIN_ARCHIVE_SHA1SUM"
+
+      - name: Validate plugin
+        env:
+          PLUGIN_ARCHIVE: ${{ steps.metadata.outputs.archive }}
+          PLUGIN_VALIDATOR_OSV_CONFIG: ${{ github.workspace }}/.github/osv-scanner-validator.toml
+        run: npx -y @grafana/plugin-validator@0.51.1 -sourceCodeUri file://./ "$PLUGIN_ARCHIVE"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugin-package
+          path: |
+            ${{ steps.metadata.outputs.archive }}
+            ${{ steps.metadata.outputs.archive-sha1sum }}
+          retention-days: 7
