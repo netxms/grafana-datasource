@@ -75,5 +75,9 @@ All NetXMS API calls use Bearer token auth. HTTP client has 10-second timeout.
 
 ### CI/CD (GitHub Actions)
 - `ci.yml` — typecheck, lint, test, build, sign, validate, e2e on multiple Grafana versions
-- `release.yml` — triggered by `v*` tags, builds and publishes to Grafana plugin registry
+- `build-plugin.yml` — reusable workflow: build, test, sign (optional), package, run the Grafana plugin validator (blocking). Vulnerabilities without an upstream fix are excepted with an expiry date in `.github/osv-scanner-validator.toml`
+- `release.yml` — triggered by `v*` tags, calls `build-plugin.yml` with signing and creates a **draft** GitHub release with the zip + sha1. Publishing to the Grafana plugin catalog is a manual step (publish the draft, then submit the zip URL at grafana.com → My Plugins → Submit Plugin)
+- `security-scan.yml` — weekly and on dependency PRs, calls `build-plugin.yml` without signing; a failed scheduled run is emailed by GitHub
+- `cp-update.yml` — monthly, opens a PR when `@grafana/create-plugin` scaffolding (`.config/`) has a newer version
+- `dependabot.yml` — weekly grouped PRs for npm, Go modules and GitHub Actions
 - E2e tests use `ghcr.io/netxms/server-e2e:6.0.3` as the NetXMS test server
