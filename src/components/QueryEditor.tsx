@@ -20,6 +20,13 @@ function errorMessage(err: unknown): string {
   return e?.data?.reason || e?.data?.message || e?.statusText || e?.message || 'Unknown error';
 }
 
+// An error of one dropdown list, tagged with what it was loaded for (the query type or the
+// root object), so it is only shown while the editor still shows that query type / object
+type LoadError = { context: string; message: string };
+
+// The DCI list, tagged with the root object it belongs to
+type DciList = { objectId?: string; options: Option[] };
+
 export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) {
   const [objectList, setObjectList] = useState<Option[]>([]);
   const [isLoadingObjects, setIsLoadingObjects] = useState(false);
@@ -27,19 +34,20 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
   const [isLoadingSummaryTable, setIsLoadingSummaryTable] = useState(false);
   const [objectQueryList, setObjectQueryList] = useState<Option[]>([]);
   const [isLoadingObjectQueries, setIsLoadingObjectQueries] = useState(false);
-  const [dciList, setDciList] = useState<Option[]>([]);
+  const [dciList, setDciList] = useState<DciList>({ options: [] });
   const [isLoadingDcis, setIsLoadingDcis] = useState(false);
-  const [listError, setListError] = useState<string | undefined>();
-  const [dciError, setDciError] = useState<string | undefined>();
+  const [loadErrors, setLoadErrors] = useState<Record<string, LoadError>>({});
 
   // Loads one dropdown list. Results of a request that was superseded (query type or root
-  // object changed meanwhile) are dropped via isCancelled.
+  // object changed meanwhile) are dropped via isCancelled. State is only updated after the
+  // request completes, never synchronously from the calling effect.
   const load = useCallback(
     async (
+      list: string,
+      context: string,
       fetch: () => Promise<ObjectToIdList>,
       setList: (options: Option[]) => void,
       setLoading: (loading: boolean) => void,
-      setError: (error: string | undefined) => void,
       isCancelled: () => boolean
     ) => {
       setLoading(true);
@@ -47,11 +55,12 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         const response = await fetch();
         if (!isCancelled()) {
           setList(formatOptions(response));
+          setLoadErrors(({ [list]: _cleared, ...rest }) => rest);
         }
       } catch (err) {
         if (!isCancelled()) {
           setList([]);
-          setError(errorMessage(err));
+          setLoadErrors((prev) => ({ ...prev, [list]: { context, message: errorMessage(err) } }));
         }
       } finally {
         if (!isCancelled()) {
@@ -64,25 +73,28 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
 
   // Load the lists that depend on the query type
   useEffect(() => {
+    const queryType = query.queryType;
+    if (!queryType) {
+      return;
+    }
     let cancelled = false;
     const isCancelled = () => cancelled;
-    setListError(undefined);
 
-    switch (query.queryType) {
+    switch (queryType) {
       case 'alarms':
       case 'objectStatus':
-        load(() => datasource.getAlarmObjectList(), setObjectList, setIsLoadingObjects, setListError, isCancelled);
+        load('objects', queryType, () => datasource.getAlarmObjectList(), setObjectList, setIsLoadingObjects, isCancelled);
         break;
       case 'summaryTables':
-        load(() => datasource.getSummaryTableObjectList(), setObjectList, setIsLoadingObjects, setListError, isCancelled);
-        load(() => datasource.getSummaryTableList(), setSummaryTableList, setIsLoadingSummaryTable, setListError, isCancelled);
+        load('objects', queryType, () => datasource.getSummaryTableObjectList(), setObjectList, setIsLoadingObjects, isCancelled);
+        load('summaryTables', queryType, () => datasource.getSummaryTableList(), setSummaryTableList, setIsLoadingSummaryTable, isCancelled);
         break;
       case 'objectQueries':
-        load(() => datasource.getObjectQueryObjectList(), setObjectList, setIsLoadingObjects, setListError, isCancelled);
-        load(() => datasource.getObjectQueryList(), setObjectQueryList, setIsLoadingObjectQueries, setListError, isCancelled);
+        load('objects', queryType, () => datasource.getObjectQueryObjectList(), setObjectList, setIsLoadingObjects, isCancelled);
+        load('objectQueries', queryType, () => datasource.getObjectQueryList(), setObjectQueryList, setIsLoadingObjectQueries, isCancelled);
         break;
       case 'dciValues':
-        load(() => datasource.getDciObjectList(), setObjectList, setIsLoadingObjects, setListError, isCancelled);
+        load('objects', queryType, () => datasource.getDciObjectList(), setObjectList, setIsLoadingObjects, isCancelled);
         break;
     }
 
@@ -98,18 +110,31 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
   // Load the DCI list of the selected root object
   useEffect(() => {
     const objectId = query.sourceObjectId;
-    setDciError(undefined);
     if (query.queryType !== 'dciValues' || !objectId) {
-      setDciList([]);
       return;
     }
     let cancelled = false;
-    load(() => datasource.getDciList(objectId), setDciList, setIsLoadingDcis, setDciError, () => cancelled);
+    load(
+      'dcis',
+      objectId,
+      () => datasource.getDciList(objectId),
+      (options) => setDciList({ objectId, options }),
+      setIsLoadingDcis,
+      () => cancelled
+    );
     return () => {
       cancelled = true;
       setIsLoadingDcis(false);
     };
   }, [query.queryType, query.sourceObjectId, datasource, load]);
+
+  // Only show what belongs to the query type / root object currently shown in the editor
+  const dciOptions = dciList.objectId === query.sourceObjectId ? dciList.options : [];
+  const loadError = Object.entries(loadErrors).find(([list, e]) =>
+    list === 'dcis'
+      ? query.queryType === 'dciValues' && e.context === query.sourceObjectId
+      : e.context === query.queryType
+  )?.[1].message;
 
   // Apply the change and run the query as soon as all required fields of the NEW query are set
   const updateQuery = (next: NetXMSQuery) => {
@@ -135,9 +160,9 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
 
   return (
     <Stack gap={2} direction="column">
-      {(listError || dciError) && (
+      {loadError && (
         <Alert severity="error" title="Failed to load data from NetXMS">
-          {listError || dciError}
+          {loadError}
         </Alert>
       )}
 
@@ -231,7 +256,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
           <Select
             value={query.dciId}
             onChange={(v) => updateQuery({ ...query, dciId: v?.value })}
-            options={dciList}
+            options={dciOptions}
             isLoading={isLoadingDcis}
             placeholder="Select DCI"
             width={32}
