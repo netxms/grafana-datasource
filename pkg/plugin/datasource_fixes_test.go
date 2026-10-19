@@ -1,0 +1,324 @@
+package plugin
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/data"
+)
+
+// newTestDatasource creates a datasource instance pointing at the given mock server.
+func newTestDatasource(t *testing.T, serverURL string) (*NetXMSDatasource, backend.DataSourceInstanceSettings) {
+	t.Helper()
+	settings := backend.DataSourceInstanceSettings{
+		JSONData:                []byte(`{"serverAddress": "` + serverURL + `"}`),
+		DecryptedSecureJSONData: map[string]string{"apiKey": "test-key"},
+	}
+	instance, err := NewDatasource(context.Background(), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, ok := instance.(*NetXMSDatasource)
+	if !ok {
+		t.Fatal("unexpected instance type")
+	}
+	return ds, settings
+}
+
+func runSingleQuery(t *testing.T, ds *NetXMSDatasource, settings backend.DataSourceInstanceSettings, queryType string, model map[string]any) backend.DataResponse {
+	t.Helper()
+	queryJSON, err := json.Marshal(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+		Queries:       []backend.DataQuery{{RefID: "A", QueryType: queryType, JSON: queryJSON}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.Responses["A"]
+}
+
+func TestObjectQuerySendsInputFieldsAndBuildsTypedColumns(t *testing.T) {
+	var received map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/grafana/infinity/object-query" {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Errorf("request body is not JSON: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"Name": "node1", "Load": 1.5, "Up": true, "Note": "x"},
+			{"Name": "node2", "Load": null, "Up": false, "Note": 42}
+		]`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "objectQueries", map[string]any{
+		"objectQueryId":   "7",
+		"sourceObjectId":  "3",
+		"queryParameters": `{"name": "srv", "limit": 5}`,
+	})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	inputFields, ok := received["inputFields"].(map[string]any)
+	if !ok {
+		t.Fatalf("inputFields object missing from request body: %v", received)
+	}
+	if inputFields["name"] != "srv" || inputFields["limit"] != float64(5) {
+		t.Errorf("unexpected inputFields: %v", inputFields)
+	}
+	if _, exists := received["values"]; exists {
+		t.Errorf("legacy 'values' key must not be sent")
+	}
+	if received["queryId"] != float64(7) || received["rootObjectId"] != float64(3) {
+		t.Errorf("unexpected ids in request body: %v", received)
+	}
+
+	if len(resp.Frames) != 1 {
+		t.Fatalf("expected one frame, got %d", len(resp.Frames))
+	}
+	frame := resp.Frames[0]
+	want := map[string]data.FieldType{
+		"Name": data.FieldTypeString,
+		"Load": data.FieldTypeNullableFloat64,
+		"Up":   data.FieldTypeNullableBool,
+		"Note": data.FieldTypeString, // mixed column falls back to text
+	}
+	if len(frame.Fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d", len(want), len(frame.Fields))
+	}
+	for _, f := range frame.Fields {
+		if f.Type() != want[f.Name] {
+			t.Errorf("column %q: expected type %s, got %s", f.Name, want[f.Name], f.Type())
+		}
+		if f.Len() != 2 {
+			t.Errorf("column %q: expected 2 rows, got %d", f.Name, f.Len())
+		}
+	}
+	if v, ok := frame.Fields[1].ConcreteAt(1); ok {
+		t.Errorf("null cell must stay null, got %v", v)
+	}
+	if v, _ := frame.Fields[3].ConcreteAt(1); v != "42" {
+		t.Errorf("mixed column must be rendered as text, got %v", v)
+	}
+}
+
+func TestParseInputFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    map[string]any
+		wantErr bool
+	}{
+		{name: "object", raw: `{"a": "1", "b": 2}`, want: map[string]any{"a": "1", "b": float64(2)}},
+		{name: "array of objects", raw: `[{"a": "1"}, {"b": "2"}]`, want: map[string]any{"a": "1", "b": "2"}},
+		{name: "array of key/value pairs", raw: `[{"key": "a", "value": "1"}]`, want: map[string]any{"a": "1"}},
+		{name: "invalid json", raw: `{`, wantErr: true},
+		{name: "scalar", raw: `"x"`, wantErr: true},
+		{name: "array of scalars", raw: `[1]`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseInputFields(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got %v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("key %q: expected %v, got %v", k, v, got[k])
+				}
+			}
+		})
+	}
+}
+
+func TestResourceHandlerForwardsUpstreamErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"reason": "Invalid API key"}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+
+	var gotStatus int
+	var gotBody string
+	sender := backend.CallResourceResponseSenderFunc(func(res *backend.CallResourceResponse) error {
+		gotStatus = res.Status
+		gotBody += string(res.Body)
+		return nil
+	})
+	err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
+		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+		Path:          "alarmObjects",
+		Method:        http.MethodGet,
+	}, sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotStatus != http.StatusBadGateway {
+		t.Errorf("expected upstream 401 to be reported as 502, got %d", gotStatus)
+	}
+	if !strings.Contains(gotBody, "Invalid API key") {
+		t.Errorf("expected reason in body, got %q", gotBody)
+	}
+}
+
+func TestResourceHandlerSortsObjects(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"objects": [{"name": "b", "id": 2}, {"name": "a", "id": 1}]}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	var gotBody string
+	sender := backend.CallResourceResponseSenderFunc(func(res *backend.CallResourceResponse) error {
+		if res.Status != http.StatusOK {
+			t.Errorf("expected 200, got %d", res.Status)
+		}
+		gotBody += string(res.Body)
+		return nil
+	})
+	if err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
+		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+		Path:          "dcis",
+		URL:           "dcis?objectId=5",
+		Method:        http.MethodGet,
+	}, sender); err != nil {
+		t.Fatal(err)
+	}
+	var parsed ObjectList
+	if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+		t.Fatalf("invalid JSON %q: %v", gotBody, err)
+	}
+	if len(parsed.Objects) != 2 || parsed.Objects[0].Name != "a" || parsed.Objects[1].Name != "b" {
+		t.Errorf("objects not sorted by name: %v", parsed.Objects)
+	}
+}
+
+// ObjectList mirrors the resource response consumed by the frontend.
+type ObjectList struct {
+	Objects []struct {
+		Name string `json:"name"`
+		ID   int    `json:"id"`
+	} `json:"objects"`
+}
+
+func TestDciValuesSkipNullTimestampAndKeepNumericType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/objects/10/data-collection/20/history") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"description": "CPU", "unitName": "%", "values": [
+			{"timestamp": "2026-10-19T10:00:00.000Z", "value": "1.5"},
+			{"timestamp": null, "value": "0"},
+			{"timestamp": "2026-10-19T10:01:00.000Z", "value": "2"}
+		]}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "dciValues", map[string]any{"sourceObjectId": "10", "dciId": "20"})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+	if len(resp.Frames) != 1 || len(resp.Frames[0].Fields) != 2 {
+		t.Fatalf("unexpected frame layout: %v", resp.Frames)
+	}
+	valueField := resp.Frames[0].Fields[1]
+	if valueField.Type() != data.FieldTypeFloat64 {
+		t.Errorf("expected float64 values, got %s", valueField.Type())
+	}
+	if valueField.Len() != 2 {
+		t.Errorf("expected the null-timestamp point to be skipped, got %d points", valueField.Len())
+	}
+	if resp.Frames[0].Name != "CPU" {
+		t.Errorf("expected frame name from description, got %q", resp.Frames[0].Name)
+	}
+}
+
+func TestDciValuesStringFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"description": "State", "unitName": "", "values": [
+			{"timestamp": "2026-10-19T10:00:00.000Z", "value": "1"},
+			{"timestamp": "2026-10-19T10:01:00.000Z", "value": "up"}
+		]}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "dciValues", map[string]any{"sourceObjectId": "1", "dciId": "2"})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+	valueField := resp.Frames[0].Fields[1]
+	if valueField.Type() != data.FieldTypeString || valueField.Len() != 2 {
+		t.Errorf("expected 2 string values, got %s x%d", valueField.Type(), valueField.Len())
+	}
+}
+
+func TestAlarmsAcceptUnsignedIds(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"Id": 4000000000, "Severity": "Major", "State": "Outstanding", "Source": "n", "Message": "m",
+			"Count": 3000000000, "Ack/Resolve by": "", "Created": "2026-10-19T10:00:00.000Z", "Last Change": "2026-10-19T10:00:00.000Z"}]`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "alarms", map[string]any{})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+	if got, _ := resp.Frames[0].Fields[0].ConcreteAt(0); got != uint32(4000000000) {
+		t.Errorf("expected alarm id 4000000000, got %v", got)
+	}
+}
+
+func TestQueryErrorsFromServerAreReported(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"reason": "Query not found"}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "objectQueries", map[string]any{"objectQueryId": "99"})
+	if resp.Error == nil || !strings.Contains(resp.Error.Error(), "Query not found") {
+		t.Errorf("expected server reason in error, got %v", resp.Error)
+	}
+	resp = runSingleQuery(t, ds, settings, "summaryTables", map[string]any{"sourceObjectId": "1"})
+	if resp.Error == nil || !strings.Contains(resp.Error.Error(), "summaryTableId is required") {
+		t.Errorf("expected validation error, got %v", resp.Error)
+	}
+}

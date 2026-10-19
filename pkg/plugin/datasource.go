@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -13,9 +15,9 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/raden-solutions/net-xms/pkg/models"
@@ -73,12 +75,12 @@ type queryModel struct {
 }
 
 type alarmResponse struct {
-	Id         int32     `json:"Id"`
+	Id         uint32    `json:"Id"`
 	Severity   string    `json:"Severity"`
 	State      string    `json:"State"`
 	Source     string    `json:"Source"`
 	Message    string    `json:"Message"`
-	Count      int32     `json:"Count"`
+	Count      uint32    `json:"Count"`
 	AckBy      string    `json:"Ack/Resolve by"`
 	Created    time.Time `json:"Created"`
 	LastChange time.Time `json:"Last Change"`
@@ -198,12 +200,12 @@ func (d *NetXMSDatasource) query(ctx context.Context, pCtx backend.PluginContext
 
 	frame := data.NewFrame("alarms")
 
-	ids := make([]int32, len(alarms))
+	ids := make([]uint32, len(alarms))
 	severities := make([]string, len(alarms))
 	states := make([]string, len(alarms))
 	sources := make([]string, len(alarms))
 	messages := make([]string, len(alarms))
-	counts := make([]int32, len(alarms))
+	counts := make([]uint32, len(alarms))
 	ackBy := make([]string, len(alarms))
 	created := make([]time.Time, len(alarms))
 	lastChange := make([]time.Time, len(alarms))
@@ -415,6 +417,11 @@ func (ds *NetXMSDatasource) handleQuery(url string, rw http.ResponseWriter, req 
 		return
 	}
 
+	if result.StatusCode != http.StatusOK {
+		writeResourceError(rw, result.StatusCode, body)
+		return
+	}
+
 	// Parse JSON and sort by label
 	var responseData map[string]any
 	if unmarshalErr := json.Unmarshal(body, &responseData); unmarshalErr != nil {
@@ -574,26 +581,32 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 
 		frame := data.NewFrame(dciData.Description)
 
-		times := make([]time.Time, len(dciData.Values))
-
-		// First, try to parse all values as floats
+		times := make([]time.Time, 0, len(dciData.Values))
+		stringValues := make([]string, 0, len(dciData.Values))
+		floatValues := make([]float64, 0, len(dciData.Values))
 		isNumeric := true
-		floatValues := make([]float64, len(dciData.Values))
 		var parseError error
 
-		for i, v := range dciData.Values {
+		for _, v := range dciData.Values {
+			// The server emits null for a zero timestamp; skip such points instead of failing the series.
+			if v.Timestamp == "" {
+				continue
+			}
 			t, err := time.Parse(time.RFC3339, v.Timestamp)
 			if err != nil {
-				parseError = fmt.Errorf("failed to parse timestamp: %w", err)
+				parseError = fmt.Errorf("failed to parse timestamp %q: %w", v.Timestamp, err)
 				break
 			}
-			times[i] = t
+			times = append(times, t)
+			stringValues = append(stringValues, v.Value)
 
-			val, err := strconv.ParseFloat(v.Value, 64)
-			if err != nil {
-				isNumeric = false
-			} else {
-				floatValues[i] = val
+			if isNumeric {
+				val, err := strconv.ParseFloat(v.Value, 64)
+				if err != nil {
+					isNumeric = false
+				} else {
+					floatValues = append(floatValues, val)
+				}
 			}
 		}
 
@@ -610,10 +623,6 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 			)
 		} else {
 			// Some values are not numeric, use string field
-			stringValues := make([]string, len(dciData.Values))
-			for i, v := range dciData.Values {
-				stringValues[i] = v.Value
-			}
 			frame.Fields = append(frame.Fields,
 				data.NewField("time", nil, times),
 				data.NewField("value", nil, stringValues),
@@ -676,9 +685,9 @@ func (d *NetXMSDatasource) handleTableQuery(ctx context.Context, req *backend.Qu
 		}
 
 		valid := true
-		for _, req := range queryConfig.required {
-			if value, ok := qm[req.field].(string); !ok || value == "" {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, req.message)
+		for _, rf := range queryConfig.required {
+			if value, ok := qm[rf.field].(string); !ok || value == "" {
+				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, rf.message)
 				valid = false
 				break
 			}
@@ -751,7 +760,7 @@ func (d *NetXMSDatasource) handleTableQuery(ctx context.Context, req *backend.Qu
 
 		frame := data.NewFrame(queryConfig.frameName)
 
-		if len(tableResponse) > 0 { //nolint:nestif // ordered column extraction requires nested decoding
+		if len(tableResponse) > 0 {
 			dec := json.NewDecoder(bytes.NewReader(body))
 			if token, err := dec.Token(); err != nil || token != json.Delim('[') {
 				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("expected array, got %v", token))
@@ -775,62 +784,8 @@ func (d *NetXMSDatasource) handleTableQuery(ctx context.Context, req *backend.Qu
 				continue
 			}
 
-			columnValues := make(map[string][]any)
 			for _, columnName := range columnOrder {
-				columnValues[columnName] = make([]any, len(tableResponse))
-			}
-
-			for i, row := range tableResponse {
-				for _, columnName := range columnOrder {
-					val := row[columnName]
-					if val == nil {
-						columnValues[columnName][i] = nil
-						continue
-					}
-
-					switch v := val.(type) {
-					case string:
-						columnValues[columnName][i] = v
-					case float64:
-						columnValues[columnName][i] = v
-					case int:
-						columnValues[columnName][i] = float64(v)
-					case int64:
-						columnValues[columnName][i] = float64(v)
-					case bool:
-						columnValues[columnName][i] = v
-					case []any:
-						columnValues[columnName][i] = fmt.Sprintf("%v", v)
-					default:
-						columnValues[columnName][i] = fmt.Sprintf("%v", v)
-					}
-				}
-			}
-
-			for _, columnName := range columnOrder {
-				values := columnValues[columnName]
-				var field *data.Field
-				if len(values) > 0 && values[0] != nil {
-					switch values[0].(type) {
-					case float64:
-						field = data.NewField(columnName, nil, values)
-					case bool:
-						field = data.NewField(columnName, nil, values)
-					default:
-						strValues := make([]string, len(values))
-						for i, v := range values {
-							if v == nil {
-								strValues[i] = ""
-							} else {
-								strValues[i] = fmt.Sprintf("%v", v)
-							}
-						}
-						field = data.NewField(columnName, nil, strValues)
-					}
-				} else {
-					field = data.NewField(columnName, nil, make([]string, len(values)))
-				}
-				frame.Fields = append(frame.Fields, field)
+				frame.Fields = append(frame.Fields, buildTableColumn(columnName, tableResponse))
 			}
 		}
 
@@ -847,7 +802,7 @@ func (d *NetXMSDatasource) handleSummaryTableQuery(ctx context.Context, req *bac
 		url:       "/v1/grafana/infinity/summary-table",
 		frameName: "summary-table",
 		required: []requiredField{
-			{"summaryTableId", "tableId is required"},
+			{"summaryTableId", "summaryTableId is required"},
 		},
 		formatBody: func(qm map[string]any) (map[string]any, error) {
 			reqBody := make(map[string]any)
@@ -878,7 +833,7 @@ func (d *NetXMSDatasource) handleObjectQueryQuery(ctx context.Context, req *back
 		url:       "/v1/grafana/infinity/object-query",
 		frameName: "object-query",
 		required: []requiredField{
-			{"objectQueryId", "queryId is required"},
+			{"objectQueryId", "objectQueryId is required"},
 		},
 		formatBody: func(qm map[string]any) (map[string]any, error) {
 			reqBody := make(map[string]any)
@@ -899,12 +854,12 @@ func (d *NetXMSDatasource) handleObjectQueryQuery(ctx context.Context, req *back
 				reqBody["queryId"] = queryIdNum
 			}
 
-			if values, ok := qm["queryParameters"].(string); ok && values != "" {
-				var parsedValues []map[string]any
-				if err := json.Unmarshal([]byte(values), &parsedValues); err != nil {
-					return nil, fmt.Errorf("invalid queryParameters JSON: %w", err)
+			if raw, ok := qm["queryParameters"].(string); ok && strings.TrimSpace(raw) != "" {
+				inputFields, err := parseInputFields(raw)
+				if err != nil {
+					return nil, err
 				}
-				reqBody["values"] = parsedValues
+				reqBody["inputFields"] = inputFields
 			}
 
 			return reqBody, nil
@@ -1033,6 +988,104 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 	}
 
 	return response, nil
+}
+
+// buildTableColumn builds a frame field for one column of a table response. Numeric and
+// boolean columns keep their type (nullable) when every non-null cell has it; anything else,
+// including mixed columns, becomes text with empty strings for nulls.
+func buildTableColumn(name string, rows []map[string]any) *data.Field {
+	hasValue, allFloat, allBool := false, true, true
+	for _, row := range rows {
+		v := row[name]
+		if v == nil {
+			continue
+		}
+		hasValue = true
+		if _, ok := v.(float64); !ok {
+			allFloat = false
+		}
+		if _, ok := v.(bool); !ok {
+			allBool = false
+		}
+	}
+
+	switch {
+	case hasValue && allFloat:
+		values := make([]*float64, len(rows))
+		for i, row := range rows {
+			if f, ok := row[name].(float64); ok {
+				values[i] = &f
+			}
+		}
+		return data.NewField(name, nil, values)
+	case hasValue && allBool:
+		values := make([]*bool, len(rows))
+		for i, row := range rows {
+			if b, ok := row[name].(bool); ok {
+				values[i] = &b
+			}
+		}
+		return data.NewField(name, nil, values)
+	default:
+		values := make([]string, len(rows))
+		for i, row := range rows {
+			if v := row[name]; v != nil {
+				values[i] = fmt.Sprintf("%v", v)
+			}
+		}
+		return data.NewField(name, nil, values)
+	}
+}
+
+// parseInputFields converts the query parameters JSON entered in the editor into the flat
+// object the NetXMS "inputFields" request field expects. Accepts an object ({"name": "value"}),
+// an array of such objects, or an array of {"key": ..., "value": ...} pairs.
+func parseInputFields(raw string) (map[string]any, error) {
+	var decoded any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil, fmt.Errorf("invalid queryParameters JSON: %w", err)
+	}
+
+	fields := make(map[string]any)
+	switch v := decoded.(type) {
+	case map[string]any:
+		maps.Copy(fields, v)
+	case []any:
+		for _, item := range v {
+			obj, ok := item.(map[string]any)
+			if !ok {
+				return nil, errors.New("invalid queryParameters: array items must be objects")
+			}
+			if key, isPair := obj["key"].(string); isPair && len(obj) == 2 {
+				if value, exists := obj["value"]; exists {
+					fields[key] = value
+					continue
+				}
+			}
+			maps.Copy(fields, obj)
+		}
+	default:
+		return nil, errors.New("invalid queryParameters: expected a JSON object or array")
+	}
+	return fields, nil
+}
+
+// writeResourceError reports an upstream NetXMS error to the frontend as 502 Bad Gateway with
+// a JSON body carrying the reason, so the query editor can show it. The upstream status is not
+// forwarded as is: a 401 from a plugin resource makes Grafana's frontend treat it as an expired
+// Grafana session and start token rotation.
+func writeResourceError(rw http.ResponseWriter, statusCode int, body []byte) {
+	reason := "Request error"
+	var reasonResp map[string]string
+	if err := json.Unmarshal(body, &reasonResp); err == nil && reasonResp["reason"] != "" {
+		reason = reasonResp["reason"]
+	} else if statusCode == http.StatusUnauthorized {
+		reason = "Unauthorized: Invalid API key"
+	}
+	payload, _ := json.Marshal(map[string]string{"reason": reason})
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusBadGateway)
+	_, _ = rw.Write(payload)
 }
 
 // parseErrorResponse extracts error message from response body and returns appropriate DataResponse
