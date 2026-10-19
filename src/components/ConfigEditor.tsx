@@ -45,13 +45,18 @@ export function ConfigEditor(props: Props) {
 
   return (
     <>
-      <InlineField label="API address" labelWidth={14} interactive tooltip={'Base URL of the NetXMS server'}>
+      <InlineField
+        label="API address"
+        labelWidth={14}
+        interactive
+        tooltip={'Base URL of the NetXMS web API, without a path: requests go to <address>/v1/...'}
+      >
         <Input
           required
           id="config-editor-path"
           onChange={onServerChange}
           value={jsonData.serverAddress}
-          placeholder="Enter the address, e.g. https://netxms.server.com/api"
+          placeholder="Enter the address, e.g. http://netxms.example.com:8000"
           width={60}
         />
       </InlineField>
