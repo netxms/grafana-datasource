@@ -16,6 +16,10 @@ updates:
           - minor
           - patch
     ignore:
+      # Base tsconfig of the create-plugin template, must match .config/tsconfig.json: even
+      # 2.0.1 -> 2.2.0 broke the build (moduleResolution "bundler" vs ts-node "commonjs").
+      # Updated only together with the template, all versions ignored here.
+      - dependency-name: "@grafana/tsconfig"
       # React 19 is not supported by the Grafana 10.4-12.x plugin runtime
       - dependency-name: "react"
         update-types: ["version-update:semver-major"]
@@ -29,8 +33,6 @@ updates:
       # are bumped together with the template by `npx @grafana/create-plugin update`
       # (cp-update.yml), separate major bumps break the template config.
       - dependency-name: "@grafana/eslint-config"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@grafana/tsconfig"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@grafana/plugin-e2e"
         update-types: ["version-update:semver-major"]
