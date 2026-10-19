@@ -6,7 +6,7 @@ export interface NetXMSQuery extends DataQuery {
   dciId?: string;
   summaryTableId?: string;
   objectQueryId?: string;
-  queryParameters?: string; // JSON string of query parameters (Values)
+  queryParameters?: string; // JSON object with input field values, sent to NetXMS as inputFields
 }
 
 export const DEFAULT_QUERY: Partial<NetXMSQuery> = {
@@ -27,7 +27,6 @@ export interface DataSourceResponse {
  */
 export interface NetxmsSourceOptions extends DataSourceJsonData {
   serverAddress: string;
-  apiKey: string;
 }
 
 /**

@@ -40,12 +40,6 @@
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
-  "routes": [
-    {
-      "path": "alarms",
-      "method": "GET"
-    }
-  ],
   "dependencies": {
     "grafanaDependency": ">=10.4.0",
     "plugins": []

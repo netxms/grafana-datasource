@@ -3,6 +3,9 @@ import { DataSourceWithBackend } from '@grafana/runtime';
 
 import { NetXMSQuery, NetxmsSourceOptions as NetXMSDataSourceOptions, DEFAULT_QUERY, ObjectToIdList } from './types';
 
+// Errors are shown inside the query editor, so suppress Grafana's global error toast
+const RESOURCE_OPTIONS = { showErrorAlert: false };
+
 export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSourceOptions> {
   constructor(instanceSettings: DataSourceInstanceSettings<NetXMSDataSourceOptions>) {
     super(instanceSettings);
@@ -13,31 +16,31 @@ export class DataSource extends DataSourceWithBackend<NetXMSQuery, NetXMSDataSou
   }
 
   getAlarmObjectList(): Promise<ObjectToIdList> {
-    return this.getResource('alarmObjects');
+    return this.getResource('alarmObjects', undefined, RESOURCE_OPTIONS);
   }
 
   getSummaryTableObjectList(): Promise<ObjectToIdList> {
-    return this.getResource('summaryTableObjects');
+    return this.getResource('summaryTableObjects', undefined, RESOURCE_OPTIONS);
   }
 
   getObjectQueryObjectList(): Promise<ObjectToIdList> {
-    return this.getResource('objectQueryObjects');
+    return this.getResource('objectQueryObjects', undefined, RESOURCE_OPTIONS);
   }
 
   getObjectQueryList(): Promise<ObjectToIdList> {
-    return this.getResource('objectQueries');
+    return this.getResource('objectQueries', undefined, RESOURCE_OPTIONS);
   }
 
   getDciObjectList(): Promise<ObjectToIdList> {
-    return this.getResource('dciObjects');
+    return this.getResource('dciObjects', undefined, RESOURCE_OPTIONS);
   }
 
   getDciList(objectId: string): Promise<ObjectToIdList> {
-    return this.getResource('dcis', { name: "objectId", objectId });
+    return this.getResource('dcis', { objectId }, RESOURCE_OPTIONS);
   }
 
   getSummaryTableList(): Promise<ObjectToIdList> {
-    return this.getResource('summaryTables');
+    return this.getResource('summaryTables', undefined, RESOURCE_OPTIONS);
   }
 
   filterQuery(query: NetXMSQuery): boolean {
