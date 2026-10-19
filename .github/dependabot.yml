@@ -16,14 +16,81 @@ updates:
           - minor
           - patch
     ignore:
-      # React 19 is not supported by Grafana 10.4-12.x plugin runtime
-      - dependency-name: react
+      # React 19 is not supported by the Grafana 10.4-12.x plugin runtime
+      - dependency-name: "react"
         update-types: ["version-update:semver-major"]
-      - dependency-name: react-dom
+      - dependency-name: "react-dom"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      # Build/test tooling from the @grafana/create-plugin template (.config/). Major versions
+      # are bumped together with the template by `npx @grafana/create-plugin update`
+      # (cp-update.yml), separate major bumps break the template config.
+      - dependency-name: "@grafana/eslint-config"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@grafana/tsconfig"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@grafana/plugin-e2e"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@playwright/test"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@stylistic/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@swc/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@testing-library/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/jest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@typescript-eslint/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "copy-webpack-plugin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "css-loader"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint-*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "fork-ts-checker-webpack-plugin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "glob"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "identity-obj-proxy"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "imports-loader"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "jest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "jest-*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prettier"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "replace-in-file-webpack-plugin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "sass"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "sass-loader"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "semver"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "style-loader"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "swc-loader"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "terser-webpack-plugin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "ts-node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "webpack"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "webpack-*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: gomod
