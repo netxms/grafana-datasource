@@ -244,3 +244,5 @@ jobs:
         uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # must match artifact-prefix of the upload step above (default is gf-playwright-report-*)
+          artifact-pattern: e2e-report-*
