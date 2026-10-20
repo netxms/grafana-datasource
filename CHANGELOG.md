@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.0.1] - 2026-10-19
+## [2.0.1] - 2026-10-20
 
 ### Bug Fixes
 - Object query parameters are now sent to NetXMS as `inputFields` (previously silently ignored by the server)
@@ -11,8 +11,12 @@ All notable changes to this project will be documented in this file.
 - Summary table / object query columns with numeric, boolean or null cells no longer crash the plugin
 - DCI history points with a null timestamp are skipped instead of failing the whole series
 - Alarm Id and Count are decoded as unsigned 32-bit integers, matching the server
+- NetXMS errors in dropdown requests are returned as 502 instead of 401, so Grafana no longer treats them as an expired Grafana session
+- Config editor shows a correct server address example (no `/api` path)
 
 ### Changes
+- Build against Grafana 13 frontend packages (`@grafana/data`, `@grafana/ui`, `@grafana/runtime`, ...); Grafana 10.4+ is still supported and covered by e2e tests
+- Update build and test tooling (webpack, SWC, Playwright, ESLint plugins and others)
 - Upgrade Go toolchain to 1.26, Grafana Go plugin SDK to v0.297.0 and grpc to 1.84 (fixes CVE-2026-33186)
 - Refresh npm lockfile to fix vulnerable transitive dependencies reported by the Grafana plugin validator
 - Release workflow: build, sign, package and validate in a reusable workflow; the plugin validator blocks the release, unfixable vulnerabilities are excepted with an expiry date
