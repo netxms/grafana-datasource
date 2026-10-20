@@ -66,9 +66,9 @@ Tasks 1-3 are committed in `/Users/alk/Development/netxms/docker` on branch `com
 - **Token table:** replace both `auth_tokens` rows with one row for user_id 1, description making clear it is the public e2e fixture token, expiry 2145969332.
 - **Safe edit:** work on a scratch copy, checkpoint the WAL, close all connections, then copy back only `db.sqlite3`. No `-shm` / `-wal` files may be left in the checkout.
 
-- [ ] fixture has exactly one token; schema still 60.34; `PRAGMA integrity_check` ok
-- [ ] plaintext key documented in a new server-e2e section of the docker repo README, stated as public and for tests only; server-e2e added to the docker repo CLAUDE.md component list
-- [ ] verified: base32-decode the documented key, SHA-256 it, and get a hash equal to `token_data`
+- [x] fixture has exactly one token; schema still 60.34; `PRAGMA integrity_check` ok
+- [x] plaintext key documented in a new server-e2e section of the docker repo README, stated as public and for tests only; server-e2e added to the docker repo CLAUDE.md component list
+- [x] verified: base32-decode the documented key, SHA-256 it, and get a hash equal to `token_data`
 
 ### Task 2: Upgrade fixture at image build time (netxms/docker)
 
