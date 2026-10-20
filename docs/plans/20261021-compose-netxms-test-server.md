@@ -110,12 +110,12 @@ Validation: the built fixture is at 70.53 with integrity intact, all 87 objects,
 
 - [x] PR run builds and smoke-tests `server-e2e` without pushing
 - [x] dispatch with a mismatched or suffix-less tag (`7.0.1-e2e.1`, `7.0.0`) is rejected before building
-- [ ] a dispatch run pushes only `<component>:<tag>`: no `latest`, no other components
+- [x] a dispatch run pushes only `<component>:<tag>`: no `latest`, no other components
 - [x] release-tag behaviour for all four components is unchanged apart from the smoke gate
 
 ➕ Local validation: actionlint's workflow/expression checks and ShellCheck on all five new shell steps pass. The full actionlint run reports only the same five pre-existing ShellCheck findings as the parent. The extracted tag validator accepts `7.0.0-e2e.1` and rejects wrong versions, missing/empty suffixes, malformed or oversized tags, and a component mismatch. Docker's official metadata action, run against a local GitHub API stub, produces identical release/master/PR tags to the parent for all four components and exactly the requested tag for dispatches, including dispatches from a release ref. The extracted push step, with Docker calls recorded instead of sent, retags and pushes the tested local image without rebuilding. The actual smoke/log/cleanup steps pass on the working image, reject a wrong key at a shortened test deadline, detect the broken published image exiting, emit failure logs, and remove containers and anonymous volumes.
 
-⚠️ The actual dispatch/push check requires the maintainer's Task 4 run and remains unchecked here. No remote image or Git ref was published during local validation. Manual dispatches also skip `create-release`, preventing release updates when dispatched from a release ref.
+➕ Dispatch verified in run 39514630536: only `build (server-e2e)` ran, `create-release` and `test-deployment` were skipped, and the only push was `server-e2e:7.0.0-e2e.1`. No remote image or Git ref was published during local validation. Manual dispatches also skip `create-release`, preventing release updates when dispatched from a release ref.
 
 ➕ Hosted PR evidence: netxms/docker#5, run 39511838738, job `build (server-e2e)`. Build/load and the smoke test succeeded, login and push were skipped, and cleanup succeeded.
 
@@ -125,9 +125,9 @@ Validation: the built fixture is at 70.53 with integrity intact, all 87 objects,
 
 The maintainer does this: push the docker repo, then trigger the dispatch. Tasks 5-6 depend on the published image.
 
-- [ ] docker repo changes merged to master
-- [ ] dispatch run with `component=server-e2e`, `tag=7.0.0-e2e.1` succeeded, smoke test included
-- [ ] `ghcr.io/netxms/server-e2e:7.0.0-e2e.1` pulls, starts, and answers the public key
+- [x] docker repo changes merged to master (netxms/docker#5, merge commit 15dfa28)
+- [x] dispatch run with `component=server-e2e`, `tag=7.0.0-e2e.1` succeeded, smoke test included (run 39514630536)
+- [x] `ghcr.io/netxms/server-e2e:7.0.0-e2e.1` pulls, starts, and answers the public key (digest `sha256:ca9b85d6d11cd7d15b5f5239231f5aa597cdbe6050a15a73dd1b9ad9af3c094f`, authenticated server-info after ~4s under emulation; `server-e2e:7.0.0` keeps its own digest)
 
 Tasks 5 and 6 land in one PR, and CI is judged on its head. Task 5 alone leaves CI red: Grafana with `network_mode: host` can't resolve `netxms`, and the step-level `NX_API_KEY` secret overrides `.env`.
 
