@@ -108,14 +108,18 @@ Validation: the built fixture is at 70.53 with integrity intact, all 87 objects,
   - the same smoke test runs before pushing;
   - the `tag` input reaches shell steps through `env:`, not inline `${{ }}`.
 
-- [ ] PR run builds and smoke-tests `server-e2e` without pushing
+- [x] PR run builds and smoke-tests `server-e2e` without pushing
 - [x] dispatch with a mismatched or suffix-less tag (`7.0.1-e2e.1`, `7.0.0`) is rejected before building
 - [ ] a dispatch run pushes only `<component>:<tag>`: no `latest`, no other components
 - [x] release-tag behaviour for all four components is unchanged apart from the smoke gate
 
 ➕ Local validation: actionlint's workflow/expression checks and ShellCheck on all five new shell steps pass. The full actionlint run reports only the same five pre-existing ShellCheck findings as the parent. The extracted tag validator accepts `7.0.0-e2e.1` and rejects wrong versions, missing/empty suffixes, malformed or oversized tags, and a component mismatch. Docker's official metadata action, run against a local GitHub API stub, produces identical release/master/PR tags to the parent for all four components and exactly the requested tag for dispatches, including dispatches from a release ref. The extracted push step, with Docker calls recorded instead of sent, retags and pushes the tested local image without rebuilding. The actual smoke/log/cleanup steps pass on the working image, reject a wrong key at a shortened test deadline, detect the broken published image exiting, emit failure logs, and remove containers and anonymous volumes.
 
-⚠️ Hosted PR and actual dispatch/push checks require the maintainer's push in Task 4; they remain unchecked here. No remote image or Git ref was published during local validation. Manual dispatches also skip `create-release`, preventing release updates when dispatched from a release ref.
+⚠️ The actual dispatch/push check requires the maintainer's Task 4 run and remains unchecked here. No remote image or Git ref was published during local validation. Manual dispatches also skip `create-release`, preventing release updates when dispatched from a release ref.
+
+➕ Hosted PR evidence: netxms/docker#5, run 39511838738, job `build (server-e2e)`. Build/load and the smoke test succeeded, login and push were skipped, and cleanup succeeded.
+
+➕ The PR-only `test-deployment` job (first run ever, since #5 is the repo's first PR) failed: it wrote `POSTGRES_PASSWORD=test_password` while `deployment-example/conf/server/netxmsd.conf` hardcodes `DBPassword=netxms`. Fixed in docker `44bb6ba` (approved by codex), with a local reproduction on the 7.0.0 images. The hosted rerun is pending the maintainer's push.
 
 ### Task 4: Publish `server-e2e:7.0.0-e2e.1` (manual checkpoint)
 
