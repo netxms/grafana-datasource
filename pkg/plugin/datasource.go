@@ -687,7 +687,33 @@ func decodeJSONKeyOrder(rawData []byte) ([]string, error) {
 	return keys, nil
 }
 
-//nolint:gocyclo // complex query handling with multiple validation paths and dynamic column types
+// decodeTableRows decodes each row into a map and returns the union of row keys in first-seen order,
+// since object query rows carry only the fields set for that object.
+func decodeTableRows(rawRows []json.RawMessage) ([]string, []map[string]any, error) {
+	var columns []string
+	seen := make(map[string]bool)
+	rows := make([]map[string]any, 0, len(rawRows))
+	for i, raw := range rawRows {
+		keys, err := decodeJSONKeyOrder(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("row %d: %w", i, err)
+		}
+		for _, key := range keys {
+			if !seen[key] {
+				seen[key] = true
+				columns = append(columns, key)
+			}
+		}
+
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			return nil, nil, fmt.Errorf("row %d: %w", i, err)
+		}
+		rows = append(rows, row)
+	}
+	return columns, rows, nil
+}
+
 func (d *NetXMSDatasource) handleTableQuery(ctx context.Context, req *backend.QueryDataRequest, queryConfig tableQueryConfig) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
 
@@ -766,41 +792,21 @@ func (d *NetXMSDatasource) handleTableQuery(ctx context.Context, req *backend.Qu
 			continue
 		}
 
-		var tableResponse []map[string]any
-		if err := json.Unmarshal(body, &tableResponse); err != nil {
+		var rawRows []json.RawMessage
+		if err = json.Unmarshal(body, &rawRows); err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
+			continue
+		}
+
+		columns, rows, err := decodeTableRows(rawRows)
+		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
 			continue
 		}
 
 		frame := data.NewFrame(queryConfig.frameName)
-
-		if len(tableResponse) > 0 {
-			dec := json.NewDecoder(bytes.NewReader(body))
-			if token, err := dec.Token(); err != nil || token != json.Delim('[') {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("expected array, got %v", token))
-				continue
-			}
-
-			if !dec.More() {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, "empty array")
-				continue
-			}
-
-			var firstObject json.RawMessage
-			if err := dec.Decode(&firstObject); err != nil {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to decode first object: %v", err))
-				continue
-			}
-
-			columnOrder, err := decodeJSONKeyOrder(firstObject)
-			if err != nil {
-				response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse first row: %v", err))
-				continue
-			}
-
-			for _, columnName := range columnOrder {
-				frame.Fields = append(frame.Fields, buildTableColumn(columnName, tableResponse))
-			}
+		for _, columnName := range columns {
+			frame.Fields = append(frame.Fields, buildTableColumn(columnName, rows))
 		}
 
 		response.Responses[q.RefID] = backend.DataResponse{

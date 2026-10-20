@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 ### Bug Fixes
 - Fix the e2e matrix, which did not pass the Grafana version to the container and ran the Compose default instead of resolved versions. Stable-version jobs now check the running version; the earlier 2.0.1 claim of cross-version e2e coverage was incorrect
 - DCI history is returned oldest-first, so Stat / Gauge / Bar gauge `Last` and `First` reducers show the correct sample (previously reversed) (#23)
+- Object query columns are taken from all rows, so a field set only for some objects is no longer dropped when the first object lacks it (#25)
 
 ### Changes
 - Update `golang.org/x/net` to v0.60.0 (fixes HTTP/2 vulnerabilities GO-2026-6603, -6610, -6611, -6612, -6617)
