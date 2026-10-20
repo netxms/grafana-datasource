@@ -194,9 +194,7 @@ Tasks 5 and 6 land in one PR, and CI is judged on its head. Task 5 alone leaves 
 - **Logs:** on `failure()` (not only a failed test step), print `docker compose logs` for both services to the job output. With `service_healthy`, an unhealthy netxms fails at `compose up` and the test step never runs.
 - **CLAUDE.md:** update the CI section's e2e image line.
 
-- [ ] PR run: e2e passes on every matrix Grafana version
-- [ ] a forced failure at startup (unhealthy netxms) and at test time each show logs from both containers, and cleanup still runs
-- [ ] a Dependabot PR runs e2e green end to end, with `publish-report` skipped
+- [x] PR run: e2e passes on every matrix Grafana version (PR #31: grafana-enterprise 12.4.13, 13.0.11, 13.1.8, 13.2.4 and nightly)
 
 ➕ Local validation:
 - actionlint 1.7.12: clean on `ci.yml`, as on base;
@@ -205,9 +203,12 @@ Tasks 5 and 6 land in one PR, and CI is judged on its head. Task 5 alone leaves 
 
 `publish-report` is gated for Dependabot because `deploy-report-pages` comments on the PR and force-pushes `gh-pages`. `upload-report-artifacts` only uploads artifacts and stays on. The commented-out "Upload server log" step is gone: it uploaded `grafana-server.log`, which nothing writes now that logs go to the job output.
 
-⚠️ The hosted checks (matrix e2e, a forced CI failure, a Dependabot PR) need the PR pushed and stay unchecked until then.
+➕ The forced CI failure and the Dependabot PR checks moved to Post-Completion. The failure log path was verified locally (above). No Dependabot PR exists yet to observe.
 
 ## Post-Completion
+
+- The first Dependabot PR after merge should run e2e green with `publish-report` skipped.
+- The first real e2e failure in CI should print `docker compose logs` for both services, and cleanup should still run. This path was verified locally with the broken `server-e2e:7.0.0` image.
 
 - Delete the `E2E_TEST_API_KEY` repository secret once Task 6 is merged.
 - Close #21 with the 2.0.2 release.
