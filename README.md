@@ -49,6 +49,31 @@ Grafana configuration:
 [Status Map Dashboard](src/img/dashboard-statu-map.png)
 [Summary Table Dashboard](src/img/dashboard-summary-table.png)
 
+## Development
+
+Build the plugin, then start Grafana together with a bundled NetXMS test server:
+
+```bash
+yarn install
+yarn build
+mage buildAll
+docker compose up
+```
+
+Grafana runs at http://localhost:3000 with the NetXMS data source provisioned. No configuration is needed: the defaults in `.env` point it at the `netxms` service (`ghcr.io/netxms/server-e2e`, a disposable server with seeded test data). The API key in `.env` is public and only valid for that test server. On Apple Silicon the NetXMS image runs under amd64 emulation.
+
+Run the end-to-end tests against the running stack with `yarn e2e`.
+
+To use your own NetXMS server instead, export its address and API key in the shell, so that both Docker Compose and the end-to-end tests see them, and start Grafana without the bundled server:
+
+```bash
+export NX_SERVER_ADDRESS=http://host.docker.internal:8000/
+export NX_API_KEY='your-api-key'
+docker compose up --no-deps grafana
+```
+
+Use `host.docker.internal` rather than `localhost`, because Grafana connects from inside its container. Variables exported in the shell take precedence over `.env`, even when empty, so unset any stale `NX_API_KEY` before using the bundled server.
+
 ## Contributing
 
 Contributions are welcome! You can report issues or suggest features via [GitHub Issues](https://github.com/netxms/grafana-datasource/issues).

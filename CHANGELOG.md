@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - Object query columns are taken from all rows, so a field set only for some objects is no longer dropped when the first object lacks it (#25)
 
 ### Changes
+- `docker compose up` starts a NetXMS test server (`ghcr.io/netxms/server-e2e:7.0.0-e2e.1`) next to Grafana, with the provisioned data source pointed at it, so the development environment works without configuration (#21)
 - Update `golang.org/x/net` to v0.60.0 (fixes HTTP/2 vulnerabilities GO-2026-6603, -6610, -6611, -6612, -6617)
 - Require Go 1.26.9 to build the backend (fixes standard library vulnerabilities in `net/http`, `net/url`, `net/textproto`, `crypto/tls`, `encoding/asn1` and `html/template` reported by govulncheck)
 
