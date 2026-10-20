@@ -196,7 +196,16 @@ Tasks 5 and 6 land in one PR, and CI is judged on its head. Task 5 alone leaves 
 
 - [ ] PR run: e2e passes on every matrix Grafana version
 - [ ] a forced failure at startup (unhealthy netxms) and at test time each show logs from both containers, and cleanup still runs
-- [ ] a Dependabot PR runs e2e green end to end, `publish-report` included
+- [ ] a Dependabot PR runs e2e green end to end, with `publish-report` skipped
+
+➕ Local validation:
+- actionlint 1.7.12: clean on `ci.yml`, as on base;
+- the CI start command run locally (`ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=12.4.0 GRAFANA_IMAGE=grafana-enterprise docker compose up -d`): `yarn run e2e` 7 passed, and `docker compose down --volumes` left no containers;
+- startup failure, with netxms temporarily overridden to the broken `server-e2e:7.0.0`: `compose up` exits 1 ("dependency netxms failed to start"), and plain `docker compose logs` still shows the netxms output, which the `failure()` log step relies on.
+
+`publish-report` is gated for Dependabot because `deploy-report-pages` comments on the PR and force-pushes `gh-pages`. `upload-report-artifacts` only uploads artifacts and stays on. The commented-out "Upload server log" step is gone: it uploaded `grafana-server.log`, which nothing writes now that logs go to the job output.
+
+⚠️ The hosted checks (matrix e2e, a forced CI failure, a Dependabot PR) need the PR pushed and stay unchecked until then.
 
 ## Post-Completion
 

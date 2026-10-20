@@ -80,4 +80,4 @@ All NetXMS API calls use Bearer token auth. HTTP client has 10-second timeout.
 - `security-scan.yml` — weekly and on dependency PRs, calls `build-plugin.yml` without signing; a failed scheduled run is emailed by GitHub
 - `cp-update.yml` — monthly, opens a PR when `@grafana/create-plugin` scaffolding (`.config/`) has a newer version
 - `dependabot.yml` — weekly grouped PRs for npm, Go modules and GitHub Actions
-- E2e tests use `ghcr.io/netxms/server-e2e:6.0.3` as the NetXMS test server
+- E2e tests run against the `netxms` service from `docker-compose.yaml` (`ghcr.io/netxms/server-e2e:7.0.0-e2e.1`), started together with Grafana; no secrets are needed, so Dependabot PRs run e2e too (`publish-report` is skipped for them, their token is read-only)
