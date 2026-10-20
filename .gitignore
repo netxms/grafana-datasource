@@ -48,8 +48,5 @@ ci/
 # ralphex progress logs
 .ralphex/progress/
 
-# implementation plans stay local
-docs/plans/
-
 # revmux review rounds stay local
 .revmux/tasks/
