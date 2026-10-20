@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,6 +94,11 @@ type dciValueResponse struct {
 		Timestamp string `json:"timestamp"`
 		Value     string `json:"value"`
 	} `json:"values"`
+}
+
+type dciPoint struct {
+	ts    time.Time
+	value string
 }
 
 type requiredField struct {
@@ -581,10 +587,7 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 
 		frame := data.NewFrame(dciData.Description)
 
-		times := make([]time.Time, 0, len(dciData.Values))
-		stringValues := make([]string, 0, len(dciData.Values))
-		floatValues := make([]float64, 0, len(dciData.Values))
-		isNumeric := true
+		points := make([]dciPoint, 0, len(dciData.Values))
 		var parseError error
 
 		for _, v := range dciData.Values {
@@ -597,22 +600,33 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 				parseError = fmt.Errorf("failed to parse timestamp %q: %w", v.Timestamp, err)
 				break
 			}
-			times = append(times, t)
-			stringValues = append(stringValues, v.Value)
+			points = append(points, dciPoint{ts: t, value: v.Value})
+		}
+
+		if parseError != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, parseError.Error())
+			continue
+		}
+
+		slices.SortStableFunc(points, func(a, b dciPoint) int { return a.ts.Compare(b.ts) })
+
+		times := make([]time.Time, 0, len(points))
+		stringValues := make([]string, 0, len(points))
+		floatValues := make([]float64, 0, len(points))
+		isNumeric := true
+
+		for _, p := range points {
+			times = append(times, p.ts)
+			stringValues = append(stringValues, p.value)
 
 			if isNumeric {
-				val, err := strconv.ParseFloat(v.Value, 64)
+				val, err := strconv.ParseFloat(p.value, 64)
 				if err != nil {
 					isNumeric = false
 				} else {
 					floatValues = append(floatValues, val)
 				}
 			}
-		}
-
-		if parseError != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, parseError.Error())
-			continue
 		}
 
 		if isNumeric {

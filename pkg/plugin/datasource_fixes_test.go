@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
@@ -270,8 +271,8 @@ func TestDciValuesStringFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"description": "State", "unitName": "", "values": [
-			{"timestamp": "2026-10-19T10:00:00.000Z", "value": "1"},
-			{"timestamp": "2026-10-19T10:01:00.000Z", "value": "up"}
+			{"timestamp": "2026-10-19T10:01:00.000Z", "value": "up"},
+			{"timestamp": "2026-10-19T10:00:00.000Z", "value": "1"}
 		]}`))
 	}))
 	defer server.Close()
@@ -283,7 +284,99 @@ func TestDciValuesStringFallback(t *testing.T) {
 	}
 	valueField := resp.Frames[0].Fields[1]
 	if valueField.Type() != data.FieldTypeString || valueField.Len() != 2 {
-		t.Errorf("expected 2 string values, got %s x%d", valueField.Type(), valueField.Len())
+		t.Fatalf("expected 2 string values, got %s x%d", valueField.Type(), valueField.Len())
+	}
+	if valueField.At(0) != "1" || valueField.At(1) != "up" {
+		t.Errorf("expected values oldest-first [1 up], got [%v %v]", valueField.At(0), valueField.At(1))
+	}
+}
+
+func TestDciValuesSortedAscending(t *testing.T) {
+	tests := []struct {
+		name   string
+		values string
+	}{
+		{"newest first", `[
+			{"timestamp": "2026-10-19T10:02:00.000Z", "value": "30"},
+			{"timestamp": "2026-10-19T10:01:00.000Z", "value": "20"},
+			{"timestamp": null, "value": "0"},
+			{"timestamp": "2026-10-19T10:00:00.000Z", "value": "10"}
+		]`},
+		{"shuffled", `[
+			{"timestamp": "2026-10-19T10:01:00.000Z", "value": "20"},
+			{"timestamp": "2026-10-19T10:02:00.000Z", "value": "30"},
+			{"timestamp": "2026-10-19T10:00:00.000Z", "value": "10"}
+		]`},
+	}
+	base := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
+	wantTimes := []time.Time{base, base.Add(time.Minute), base.Add(2 * time.Minute)}
+	wantValues := []float64{10, 20, 30}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"description": "CPU", "unitName": "%", "values": ` + tt.values + `}`))
+			}))
+			defer server.Close()
+
+			ds, settings := newTestDatasource(t, server.URL)
+			resp := runSingleQuery(t, ds, settings, "dciValues", map[string]any{"sourceObjectId": "1", "dciId": "2"})
+			if resp.Error != nil {
+				t.Fatalf("unexpected error: %v", resp.Error)
+			}
+			timeField, valueField := resp.Frames[0].Fields[0], resp.Frames[0].Fields[1]
+			if timeField.Len() != len(wantTimes) || valueField.Len() != len(wantValues) {
+				t.Fatalf("expected %d points, got %d times / %d values", len(wantTimes), timeField.Len(), valueField.Len())
+			}
+			for i := range wantTimes {
+				gotTime, _ := timeField.At(i).(time.Time)
+				if !gotTime.Equal(wantTimes[i]) || valueField.At(i) != wantValues[i] {
+					t.Errorf("row %d: expected %s=%v, got %v=%v", i, wantTimes[i], wantValues[i], timeField.At(i), valueField.At(i))
+				}
+			}
+		})
+	}
+}
+
+func TestDciValuesInvalidTimestampFailsQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"description": "CPU", "unitName": "%", "values": [
+			{"timestamp": "2026-10-19T10:00:00.000Z", "value": "1"},
+			{"timestamp": "yesterday", "value": "2"}
+		]}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "dciValues", map[string]any{"sourceObjectId": "1", "dciId": "2"})
+	if resp.Error == nil || !strings.Contains(resp.Error.Error(), "yesterday") {
+		t.Errorf("expected timestamp parse error, got %v", resp.Error)
+	}
+	if len(resp.Frames) != 0 {
+		t.Errorf("expected no frames on error, got %d", len(resp.Frames))
+	}
+}
+
+func TestDciValuesEmptySeries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"description": "CPU", "unitName": "%", "values": []}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "dciValues", map[string]any{"sourceObjectId": "1", "dciId": "2"})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+	if len(resp.Frames) != 1 || len(resp.Frames[0].Fields) != 2 {
+		t.Fatalf("unexpected frame layout: %v", resp.Frames)
+	}
+	timeField, valueField := resp.Frames[0].Fields[0], resp.Frames[0].Fields[1]
+	if valueField.Type() != data.FieldTypeFloat64 || timeField.Len() != 0 || valueField.Len() != 0 {
+		t.Errorf("expected empty float64 series, got %s with %d times / %d values", valueField.Type(), timeField.Len(), valueField.Len())
 	}
 }
 
