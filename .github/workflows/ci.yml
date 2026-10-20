@@ -145,8 +145,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.resolve-versions.outputs.matrix) }}
-    name: e2e test ${{ matrix.name }}@${{ matrix.VERSION }}
+        GRAFANA_IMAGE: ${{ fromJson(needs.resolve-versions.outputs.matrix) }}
+    name: e2e test ${{ matrix.GRAFANA_IMAGE.NAME }}@${{ matrix.GRAFANA_IMAGE.VERSION }}
     runs-on: ubuntu-latest
     services:
       netxms-server:
@@ -199,6 +199,34 @@ jobs:
         with:
           url: http://localhost:3000/login
 
+      - name: Verify Grafana version
+        shell: bash
+        env:
+          EXPECTED_NAME: ${{ matrix.GRAFANA_IMAGE.NAME }}
+          EXPECTED_VERSION: ${{ matrix.GRAFANA_IMAGE.VERSION }}
+        run: |
+          if [[ -z "$EXPECTED_NAME" || -z "$EXPECTED_VERSION" ]]; then
+            echo "::error::Empty matrix image (name='$EXPECTED_NAME', version='$EXPECTED_VERSION')"
+            exit 1
+          fi
+          actual=$(curl -fsS http://localhost:3000/api/health | jq -er '.version | select(type == "string" and . != "")')
+          echo "Grafana $EXPECTED_NAME:$EXPECTED_VERSION reports version $actual"
+          # nightly reports a development version number, so only its presence can be checked
+          if [[ "$EXPECTED_VERSION" == nightly ]]; then
+            exit 0
+          fi
+          if [[ ! "$EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected matrix version '$EXPECTED_VERSION'"
+            exit 1
+          fi
+          case "$actual" in
+            "$EXPECTED_VERSION" | "$EXPECTED_VERSION"+*) ;;
+            *)
+              echo "::error::Expected Grafana $EXPECTED_VERSION, running $actual"
+              exit 1
+              ;;
+          esac
+
       - name: Install Playwright Browsers
         run: yarn exec playwright install chromium --with-deps
 
@@ -215,7 +243,7 @@ jobs:
           upload-report: false
           github-token: ${{ secrets.GITHUB_TOKEN }}
           test-outcome: ${{ steps.run-tests.outcome }}
-          artifact-prefix: e2e-report-${{ matrix.name }}-${{ matrix.VERSION }}-
+          artifact-prefix: e2e-report-${{ matrix.GRAFANA_IMAGE.NAME }}-${{ matrix.GRAFANA_IMAGE.VERSION }}-
 
       - name: Docker logs
         if: ${{ always() && steps.run-tests.outcome == 'failure' }}

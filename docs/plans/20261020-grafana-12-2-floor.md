@@ -41,11 +41,12 @@ New step "Verify Grafana version", placed after "Wait for grafana server":
 - If the expected version is `nightly`, log the version and pass. This does not prove the nightly image ran; for that row the "Start Grafana" `FROM` line is the only evidence.
 - Otherwise the expected version must match `^[0-9]+\.[0-9]+\.[0-9]+$`, or the step fails. Pass only when the actual version equals the expected one or equals the expected one followed by `+…` (use a bash `case`). Reject `-…` (prerelease) and longer numbers such as `12.2.01`.
 
-- [ ] matrix is `GRAFANA_IMAGE: ${{ fromJson(needs.resolve-versions.outputs.matrix) }}`; the job name, "Start Grafana" and the report `artifact-prefix` all use `matrix.GRAFANA_IMAGE.NAME` / `.VERSION`; a case-insensitive grep finds no flattened `matrix.name` / `matrix.version` references (the current file has `matrix.VERSION`)
-- [ ] "Verify Grafana version" step implemented as above
-- [ ] step body run locally with a stubbed `curl`/env, with the expected result for each case: empty VERSION → fail, empty NAME → fail, VERSION `garbage` → fail, `12.2.4` vs `12.2.4` → pass, `12.2.4` vs `12.2.4+security-01` → pass, `12.2.0` vs `12.2.01` → fail, `12.2.0` vs `12.2.0-rc1` → fail, `12.2.0` vs `12.2.0garbage` → fail, health JSON with `"version": null`, `"version": ""` or no `version` → fail, health body that isn't JSON → fail, stubbed `curl` exiting non-zero → fail, `nightly` with any non-empty version → pass, `nightly` with no version → fail
-- [ ] `actionlint` (if available) is clean on `ci.yml`
-- [ ] one `fix(ci): run e2e against the resolved Grafana version` commit
+- [x] matrix is `GRAFANA_IMAGE: ${{ fromJson(needs.resolve-versions.outputs.matrix) }}`; the job name, "Start Grafana" and the report `artifact-prefix` all use `matrix.GRAFANA_IMAGE.NAME` / `.VERSION`; a case-insensitive grep finds no flattened `matrix.name` / `matrix.version` references (the current file has `matrix.VERSION`)
+- [x] "Verify Grafana version" step implemented as above
+- [x] step body run locally with a stubbed `curl`/env, with the expected result for each case: empty VERSION → fail, empty NAME → fail, VERSION `garbage` → fail, `12.2.4` vs `12.2.4` → pass, `12.2.4` vs `12.2.4+security-01` → pass, `12.2.0` vs `12.2.01` → fail, `12.2.0` vs `12.2.0-rc1` → fail, `12.2.0` vs `12.2.0garbage` → fail, health JSON with `"version": null`, `"version": ""` or no `version` → fail, health body that isn't JSON → fail, stubbed `curl` exiting non-zero → fail, `nightly` with any non-empty version → pass, `nightly` with no version → fail
+- [x] `actionlint` (if available) is clean on `ci.yml`
+  - ⚠️ actionlint v1.7.7 reports 9 info-level shellcheck SC2086 findings in the `build` job, the same 9 before this change; none in `playwright-tests`
+- [x] one `fix(ci): run e2e against the resolved Grafana version` commit
 
 ### Task 2: Require Grafana 12.2.0
 
