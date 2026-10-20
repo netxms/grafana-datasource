@@ -4,7 +4,7 @@
 - Grafana datasource plugin `radensolutions-netxms-datasource`, published in the Grafana plugin catalog and signed
 - Go backend (`pkg/plugin/datasource.go`, one large file) proxies Grafana queries and resource requests to the NetXMS webAPI over HTTP with a Bearer API key
 - TypeScript/React frontend (`src/`): query editor, config editor, resource fetches via `getResource`
-- Supported: NetXMS server 5.2.4+ with the webapi module, Grafana 10.4+ (built against Grafana 13 packages)
+- Supported: NetXMS server 5.2.4+ with the webapi module, Grafana 12.4+ (built against Grafana 13 packages)
 
 ## What a real failure looks like
 - A panel shows wrong data silently: misdecoded fields, wrong timestamps, dropped or duplicated series, wrong severity/state mapping

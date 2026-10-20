@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NetXMS datasource plugin for Grafana. Hybrid Go backend + TypeScript/React frontend plugin that queries the NetXMS monitoring system via its web API. Plugin ID: `radensolutions-netxms-datasource`.
 
-Requires NetXMS server 5.2.4+ with webAPI module enabled. Requires Grafana 10.4.0+.
+Requires NetXMS server 5.2.4+ with webAPI module enabled. Requires Grafana 12.4.0+.
 
 ## Common Commands
 
