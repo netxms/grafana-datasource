@@ -82,9 +82,11 @@ Tasks 1-3 are committed in `/Users/alk/Development/netxms/docker` on branch `com
 - **Schema check:** the build must fail if the schema doesn't match the installed server afterwards, without relying on the `nxdbmgr` exit code (#3794). No ignore-errors flags.
 - **Usable check:** a second `nxdbmgr upgrade` run must report the core schema up to date and the upgrade succeeded.
 
-- [ ] local amd64 build at 7.0.0 starts and serves authenticated `GET /v1/server-info` with the Task 1 key
-- [ ] build fails when the upgrade can't reach the target schema (check by hand, e.g. a corrupted or too-new fixture)
-- [ ] the fixture's objects, DCIs and alarms are still present after the upgrade, and `PendingOnlineUpgrades` is empty
+- [x] local amd64 build at 7.0.0 starts and serves authenticated `GET /v1/server-info` with the Task 1 key
+- [x] build fails when the upgrade can't reach the target schema (check by hand, e.g. a corrupted or too-new fixture)
+- [x] the fixture's objects, DCIs and alarms are still present after the upgrade, and `PendingOnlineUpgrades` is empty
+
+Validation: the built fixture is at 70.53 with integrity intact, all 87 objects, 757 DCIs, and 10 alarms retained, and no pending background upgrades. Authenticated startup took 3.6 seconds under amd64 emulation on Apple Silicon. A scratch fixture at schema 99.34 was rejected by the build's schema check despite `nxdbmgr upgrade` returning zero.
 
 ### Task 3: Smoke test and narrow publish in CI (netxms/docker)
 
