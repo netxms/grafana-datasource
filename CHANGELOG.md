@@ -4,7 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Breaking Changes
+- Require Grafana 12.4.0 or later (was 10.4.0), the oldest Grafana line still [supported upstream](https://grafana.com/docs/grafana/latest/upgrade-guide/when-to-upgrade/). The query type selector uses `Combobox`, which is unavailable before Grafana 11.5; on Grafana 10.4–11.4 the query type selector did not render (#26)
+
 ### Bug Fixes
+- Fix the e2e matrix, which did not pass the Grafana version to the container and ran the Compose default instead of resolved versions. Stable-version jobs now check the running version; the earlier 2.0.1 claim of cross-version e2e coverage was incorrect
 - DCI history is returned oldest-first, so Stat / Gauge / Bar gauge `Last` and `First` reducers show the correct sample (previously reversed) (#23)
 
 ### Changes

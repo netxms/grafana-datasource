@@ -55,7 +55,6 @@ test('chek alarms returned', async ({ page, panelEditPage, readProvisionedDataSo
   const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
   await panelEditPage.datasource.set(ds.name);
   
-  await panelEditPage.setVisualization('Table');
   await panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: 'Query Type' }).click();
   await page.getByRole('option', { name: 'Alarms' }).click();
 

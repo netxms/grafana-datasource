@@ -54,13 +54,14 @@ New step "Verify Grafana version", placed after "Wait for grafana server":
 
 Plugin metadata, docs and one e2e spec: `src/plugin.json`, `tests/queryEditor.spec.ts`, `src/README.md`, `CLAUDE.md`, `.revmux/profile.md`, `.github/dependabot.yml`, `CHANGELOG.md`. Don't touch completed plans in `docs/plans/completed/`.
 
-- [ ] `grafanaDependency` is `>=12.4.0`
-- [ ] `src/README.md` requirements say "Grafana 12.4.0 or later"; `CLAUDE.md` says "Requires Grafana 12.4.0+"; `.revmux/profile.md` says Grafana 12.4+; the comment on the React 19 ignore in `dependabot.yml` says the Grafana 12.x plugin runtime (the ignore itself stays)
-- [ ] `CHANGELOG.md` `[Unreleased]` has a new `### Breaking Changes` section, placed first (above Bug Fixes and Changes), with an entry: requires Grafana 12.4.0 or later (was 10.4.0), the oldest Grafana version still supported; the query type selector uses `Combobox`, which isn't available before Grafana 11.5, so on 10.4–11.4 the query type selector did not render (#26). Say "selector did not render", not "editor crashed": CI saw the selector missing, and there is no trace showing more
-- [ ] `CHANGELOG.md` `[Unreleased]` / Bug Fixes entry: the e2e matrix didn't pass the Grafana version to the container, so jobs ran the compose default instead of the resolved versions; now fixed and verified by a version check. The released 2.0.1 entry stays unchanged
-- [ ] ➕ `setVisualization('Table')` removed from "chek alarms returned" in `tests/queryEditor.spec.ts`. On 12.4.13 it times out in `@grafana/plugin-e2e` 3.15.1's `PanelEditPage.setVisualization`, in its `>= 12.4.0` branch; the code is unchanged in 3.15.2 and passes on 13.2.4 and nightly (run 39493238596). Nothing in the test uses the visualization while its data assertion is commented out. Alex chose this over skipping the test on 12.4.x
-- [ ] `yarn typecheck`, `yarn lint`, `yarn test:ci`, `yarn build` pass
-- [ ] one `fix: require Grafana 12.4.0` commit with `Closes #26`
+- [x] `grafanaDependency` is `>=12.4.0`
+- [x] `src/README.md` requirements say "Grafana 12.4.0 or later"; `CLAUDE.md` says "Requires Grafana 12.4.0+"; `.revmux/profile.md` says Grafana 12.4+; the comment on the React 19 ignore in `dependabot.yml` says the Grafana 12.x plugin runtime (the ignore itself stays)
+- [x] `CHANGELOG.md` `[Unreleased]` has a new `### Breaking Changes` section, placed first (above Bug Fixes and Changes), with an entry: requires Grafana 12.4.0 or later (was 10.4.0), the oldest Grafana version still supported; the query type selector uses `Combobox`, which isn't available before Grafana 11.5, so on 10.4–11.4 the query type selector did not render (#26). Say "selector did not render", not "editor crashed": CI saw the selector missing, and there is no trace showing more
+- [x] `CHANGELOG.md` `[Unreleased]` / Bug Fixes entry: the e2e matrix didn't pass the Grafana version to the container, so jobs ran the compose default instead of the resolved versions; now fixed and verified by a version check. The released 2.0.1 entry stays unchanged
+- [x] ➕ `setVisualization('Table')` removed from "chek alarms returned" in `tests/queryEditor.spec.ts`. On 12.4.13 it times out in `@grafana/plugin-e2e` 3.15.1's `PanelEditPage.setVisualization`, in its `>= 12.4.0` branch; the code is unchanged in 3.15.2 and passes on 13.2.4 and nightly (run 39493238596). Nothing in the test uses the visualization while its data assertion is commented out. Alex chose this over skipping the test on 12.4.x
+- [x] `yarn typecheck`, `yarn lint`, `yarn test:ci`, `yarn build` pass
+  - ⚠️ `test:ci` reports no tests found and exits 0; lint reports five existing `Select` deprecation warnings; build reports existing image-size/performance warnings. Browser e2e verification remains a CI step after this task.
+- [x] one `fix: require Grafana 12.4.0` commit with `Closes #26`
 
 ## Post-Completion
 
