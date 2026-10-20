@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ### Bug Fixes
 - DCI history is returned oldest-first, so Stat / Gauge / Bar gauge `Last` and `First` reducers show the correct sample (previously reversed) (#23)
 
+### Changes
+- Update `golang.org/x/net` to v0.60.0 (fixes HTTP/2 vulnerabilities GO-2026-6603, -6610, -6611, -6612, -6617)
+- Require Go 1.26.9 to build the backend (fixes standard library vulnerabilities in `net/http`, `net/url`, `net/textproto`, `crypto/tls`, `encoding/asn1` and `html/template` reported by govulncheck)
+
 ## [2.0.1] - 2026-10-20
 
 ### Bug Fixes
