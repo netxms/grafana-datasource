@@ -21,6 +21,13 @@
 - Out of scope: `docker compose pull` runs before the image/version variables are set. This is harmless on a fresh runner.
 - The release version (a breaking change, so likely 3.0.0) is decided at release time, not here.
 
+## Tandem
+
+| Task | Writer | Reviewer |
+|---|---|---|
+| 1 | claude | codex |
+| 2 | codex | claude |
+
 ## Implementation Steps
 
 ### Task 1: Run e2e against the resolved Grafana version
