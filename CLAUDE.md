@@ -37,7 +37,7 @@ yarn typecheck          # TypeScript type checking
 ```bash
 yarn server             # Starts Grafana in Docker with plugin mounted
 ```
-Grafana runs at http://localhost:3000. The provisioned datasource expects NetXMS webAPI at `http://host.docker.internal:8000/` with API key from `$NX_API_KEY` env var.
+Grafana runs at http://localhost:3000, next to a `netxms` service (`ghcr.io/netxms/server-e2e`, amd64 only). The provisioned datasource reads `$NX_SERVER_ADDRESS` and `$NX_API_KEY`; their defaults live in the committed `.env`, which Compose reads for interpolation and `playwright.config.ts` loads via `process.loadEnvFile`. The `.env` key is public and only valid for that test server. Shell variables override `.env` for both. Keep `GRAFANA_VERSION` out of `.env`: `@grafana/plugin-e2e` prefers `process.env.GRAFANA_VERSION` over the running Grafana's version, so its default (12.4.0) is set in `docker-compose.yaml` instead. Build the backend with `mage buildAll` locally: the Grafana container is arm64 on Apple Silicon.
 
 ## Architecture
 

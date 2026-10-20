@@ -12,9 +12,7 @@ test('"Save & test" should be successful when configuration is valid', async ({
   page,
 }) => {
   const ds = await readProvisionedDataSource<NetxmsSourceOptions, NetXMSSecureJsonData>({ fileName: 'datasources.yml' });
-  // Use environment variable for API key since provisioning file uses $NX_API_KEY syntax
-  const apiKey = process.env.NX_API_KEY ?? ds.secureJsonData?.apiKey ?? '';
-  // Use host.docker.internal for Grafana container connectivity
+  const apiKey = ds.secureJsonData?.apiKey ?? '';
   const serverAddress = ds.jsonData.serverAddress ?? '';
   console.log('serverAddress:', serverAddress);
   console.log('apiKey length:', apiKey.length);

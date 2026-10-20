@@ -9,6 +9,6 @@ datasources:
     version: 1
     editable: true
     jsonData:
-      serverAddress: 'http://host.docker.internal:8000/'
+      serverAddress: $NX_SERVER_ADDRESS
     secureJsonData:
       apiKey: $NX_API_KEY

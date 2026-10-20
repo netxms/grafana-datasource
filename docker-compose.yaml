@@ -3,3 +3,23 @@ services:
     extends:
       file: .config/docker-compose-base.yaml
       service: grafana
+    build:
+      args:
+        grafana_version: ${GRAFANA_VERSION:-12.4.0}
+    depends_on:
+      netxms:
+        condition: service_healthy
+    environment:
+      NX_SERVER_ADDRESS: ${NX_SERVER_ADDRESS}
+      NX_API_KEY: ${NX_API_KEY}
+
+  netxms:
+    image: ghcr.io/netxms/server-e2e:7.0.0-e2e.1
+    platform: linux/amd64
+    healthcheck:
+      # 401 without a key means the WebAPI is serving; the key itself may be overridden for another server
+      test: ['CMD-SHELL', "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/v1/server-info | grep -qx 401"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s

@@ -156,12 +156,27 @@ Tasks 5 and 6 land in one PR, and CI is judged on its head. Task 5 alone leaves 
   - NetXMS runs under amd64 emulation on Apple Silicon.
 - **CLAUDE.md:** update the Local Development section to match.
 
-- [ ] clean checkout, `NX_*` and `GRAFANA_*` unset: `yarn build && mage buildAll`, then `docker compose up`, and Grafana 12.4.0 starts with the provisioned datasource health check passing
-- [ ] `yarn e2e` passes against it on the host
-- [ ] own-server override works with exported vars
-- [ ] `yarn typecheck`, `yarn lint`, `yarn test:ci` pass (typecheck doesn't cover `playwright.config.ts`; lint and e2e do)
-- [ ] local plugin validator run with `-sourceCodeUri file://./` doesn't flag the committed key in `.env`
-- [ ] CHANGELOG `[Unreleased]` entry: zero-config compose with a bundled NetXMS test server
+- [x] clean checkout, `NX_*` and `GRAFANA_*` unset: `yarn build && mage buildAll`, then `docker compose up`, and Grafana 12.4.0 starts with the provisioned datasource health check passing
+- [x] `yarn e2e` passes against it on the host
+- [x] own-server override works with exported vars
+- [x] `yarn typecheck`, `yarn lint`, `yarn test:ci` pass (neither typecheck nor lint covers `playwright.config.ts`: ESLint ignores it, so only e2e exercises it)
+- [x] local plugin validator run with `-sourceCodeUri file://./` doesn't flag the committed key in `.env`
+- [x] CHANGELOG `[Unreleased]` entry: zero-config compose with a bundled NetXMS test server
+
+⚠️ The healthcheck probes `/v1/server-info` without a key and requires HTTP 401, instead of an authenticated probe. This keeps the bundled server's readiness independent of the credentials used for an external server, without adding another default variable: an authenticated probe reading `NX_API_KEY` would never turn healthy once a developer overrides it, and `docker compose up` would hang. On 7.0.0-e2e.1, 401 appears the moment the WebAPI serves, and the fixture key gets 200 immediately after. Key validity is covered by the datasource health check and e2e.
+
+⚠️ `GRAFANA_VERSION` is not in `.env`. The installed `@grafana/plugin-e2e` `grafanaVersion` fixture uses `process.env.GRAFANA_VERSION || bootData.version`, so loading it from `.env` would make Playwright use 12.4 selectors against whatever Grafana actually runs, including the CI matrix and nightly (found by codex in review). The 12.4.0 default is instead a `build.args.grafana_version: ${GRAFANA_VERSION:-12.4.0}` override in `docker-compose.yaml`, which merges into the extended `.config` service. Checks:
+- `docker compose config` gives 12.4.0 by default and 13.0.0 with an exported `GRAFANA_VERSION`;
+- with `.env` loaded, the installed fixture returns bootData's 13.2.4.
+
+➕ Validation:
+- clean start: compose up took 24s, with netxms healthy after ~5s under emulation;
+- Grafana reports 12.4.0, and the provisioned datasource health returns "Data source is working";
+- `yarn e2e`: 7 passed, and "Save & test" used `http://netxms:8000/`;
+- override: with exported `NX_SERVER_ADDRESS=http://host.docker.internal:18000/` against a separate server-e2e container, `docker compose up --no-deps grafana` started only Grafana; datasource health was OK and the config e2e passed against that address;
+- `yarn lint`: only the 5 existing `Select` deprecation warnings in `QueryEditor.tsx`;
+- `yarn test:ci`: no unit tests, same as base;
+- plugin-validator 0.51.1 with source: no findings apart from the unsigned local build.
 
 ### Task 6: CI uses compose for NetXMS
 
