@@ -43,6 +43,19 @@ Design agreed with Codex (peer review) and approved by the maintainer.
   - publishing host ports for NetXMS (only Grafana's backend talks to it, and host ports would collide with a developer's own server);
   - creating tokens at container start.
 
+## Tandem
+
+| Task | Writer | Reviewer |
+|---|---|---|
+| 1 | codex | claude |
+| 2 | codex | claude |
+| 3 | codex | claude |
+| 4 | maintainer (manual) | — |
+| 5 | claude | codex |
+| 6 | claude | codex |
+
+Tasks 1-3 are committed in `/Users/alk/Development/netxms/docker` on branch `compose-netxms-test-server`, one commit per task with the `Tandem-Task: N` trailer. Their checkboxes and drift notes live in this plan, so the writer also makes a companion commit here (same trailer) and amends both until the reviewer approves. The run stops at Task 4 until the maintainer confirms the published image.
+
 ## Implementation Steps
 
 ### Task 1: Public fixture token (netxms/docker)
