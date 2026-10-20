@@ -100,6 +100,9 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # Indirect modules (golang.org/x/net etc.) are compiled into the backend binary too
+    allow:
+      - dependency-type: all
     groups:
       go-deps:
         patterns:

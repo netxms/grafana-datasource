@@ -79,6 +79,9 @@ jobs:
           version: latest
           args: coverage
 
+      - name: Check Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
       - name: Build backend
         uses: magefile/mage-action@v4
         with:
