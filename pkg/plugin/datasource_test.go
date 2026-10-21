@@ -5,144 +5,111 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
-// mockAlarmResponse creates a test server that returns mock alarm data
-func mockAlarmResponse() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request headers
-		if r.Header.Get("Authorization") != "Bearer test-key" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		// Use wire-format keys independently of alarmResponse's JSON tags.
-		_, _ = w.Write([]byte(`[
-			{"Id":1,"Severity":"Critical","State":"Outstanding","Source":"First Source",
-			 "Message":"First Alarm","Count":2,"Ack/Resolve by":"",
-			 "Created":"2026-10-19T10:00:00.000Z","Last Change":"2026-10-19T10:05:00.000Z"},
-			{"Id":3,"Severity":"Major","State":"Acknowledged","Source":"Second Source",
-			 "Message":"Second Alarm","Count":4,"Ack/Resolve by":"Test User",
-			 "Created":"2026-10-20T11:00:00.000Z","Last Change":"2026-10-20T11:10:00.000Z"}
-		]`))
-	}))
-}
-
-func TestQueryData(t *testing.T) {
-	// Create mock server
-	mockServer := mockAlarmResponse()
-	defer mockServer.Close()
-
-	// Create plugin settings with mock server URL
+// newTestDatasource creates a datasource instance pointing at the given mock server.
+func newTestDatasource(t *testing.T, serverURL string) (*NetXMSDatasource, backend.DataSourceInstanceSettings) {
+	t.Helper()
 	settings := backend.DataSourceInstanceSettings{
-		JSONData: []byte(`{
-			"serverAddress": "` + mockServer.URL + `"
-		}`),
-		DecryptedSecureJSONData: map[string]string{
-			"apiKey": "test-key",
-		},
+		JSONData:                []byte(`{"serverAddress": "` + serverURL + `"}`),
+		DecryptedSecureJSONData: map[string]string{"apiKey": "test-key"},
 	}
-
 	instance, err := NewDatasource(context.Background(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	ds, ok := instance.(*NetXMSDatasource)
 	if !ok {
-		t.Fatal("Failed to type assert instance to *Datasource")
+		t.Fatal("unexpected instance type")
 	}
+	return ds, settings
+}
 
-	// Create a query model
-	qm := queryModel{
-		SourceObjectId: "123",
-	}
-	queryJSON, err := json.Marshal(qm)
+func runSingleQuery(t *testing.T, ds *NetXMSDatasource, settings backend.DataSourceInstanceSettings, queryType string, model map[string]any) backend.DataResponse {
+	t.Helper()
+	queryJSON, err := json.Marshal(model)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	resp, err := ds.QueryData(
-		context.Background(),
-		&backend.QueryDataRequest{
-			PluginContext: backend.PluginContext{
-				DataSourceInstanceSettings: &settings,
-			},
-			Queries: []backend.DataQuery{
-				{
-					RefID:     "A",
-					QueryType: "alarms",
-					JSON:      queryJSON,
-				},
-			},
-		},
-	)
+	resp, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+		Queries:       []backend.DataQuery{{RefID: "A", QueryType: queryType, JSON: queryJSON}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return resp.Responses["A"]
+}
 
-	if len(resp.Responses) != 1 {
-		t.Fatal("QueryData must return a response")
-	}
-
-	// Verify the response contains our mock data
-	response := resp.Responses["A"]
-	if response.Error != nil {
-		t.Fatalf("Expected no error, got: %v", response.Error)
-	}
-
-	if len(response.Frames) != 1 {
-		t.Fatal("Expected one data frame")
-	}
-
-	frame := response.Frames[0]
-	if frame.Name != "alarms" {
-		t.Errorf("Expected frame name 'alarms', got: %s", frame.Name)
-	}
-
-	if len(frame.Fields) != 9 {
-		t.Fatalf("Expected 9 fields, got: %d", len(frame.Fields))
-	}
-
-	wantFields := []struct {
-		name   string
-		values [2]any
+func TestParseErrorResponse(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantReason string
+		wantStatus backend.Status
 	}{
-		{"Id", [2]any{uint32(1), uint32(3)}},
-		{"Severity", [2]any{"Critical", "Major"}},
-		{"State", [2]any{"Outstanding", "Acknowledged"}},
-		{"Source", [2]any{"First Source", "Second Source"}},
-		{"Message", [2]any{"First Alarm", "Second Alarm"}},
-		{"Count", [2]any{uint32(2), uint32(4)}},
-		{"Ack/Resolve by", [2]any{"", "Test User"}},
-		{"Created", [2]any{
-			time.Date(2026, time.October, 19, 10, 0, 0, 0, time.UTC),
-			time.Date(2026, time.October, 20, 11, 0, 0, 0, time.UTC),
-		}},
-		{"Last Change", [2]any{
-			time.Date(2026, time.October, 19, 10, 5, 0, 0, time.UTC),
-			time.Date(2026, time.October, 20, 11, 10, 0, 0, time.UTC),
-		}},
+		{"reason present", http.StatusForbidden, `{"reason":"Access denied"}`, "Request error: Access denied", backend.StatusForbidden},
+		{"reason with non-string fields", http.StatusInternalServerError, `{"reason":"Query error","errorCode":5,"diagnostic":{"line":1}}`, "Request error: Query error", backend.StatusInternal},
+		{"empty object", http.StatusNotFound, `{}`, "Request error: 404 Not Found", backend.StatusNotFound},
+		{"empty reason", http.StatusForbidden, `{"reason":""}`, "Request error: 403 Forbidden", backend.StatusForbidden},
+		{"non-JSON body", http.StatusBadRequest, `Bad request`, "Request error: 400 Bad Request", backend.StatusBadRequest},
+		// Query handlers handle 401 before calling parseErrorResponse; this row tests the helper itself.
+		{"bare 401", http.StatusUnauthorized, "", "Request error: 401 Unauthorized", backend.StatusUnauthorized},
+		{"bare 403", http.StatusForbidden, "", "Request error: 403 Forbidden", backend.StatusForbidden},
+		{"bare 404", http.StatusNotFound, "", "Request error: 404 Not Found", backend.StatusNotFound},
+		{"unknown status text", 599, "", "Request error: 599", backend.StatusInternal},
 	}
-	for i, want := range wantFields {
-		field := frame.Fields[i]
-		if field.Name != want.name {
-			t.Errorf("field %d: expected name %q, got %q", i, want.name, field.Name)
-		}
-		if field.Len() != len(want.values) {
-			t.Fatalf("field %q: expected %d rows, got %d", field.Name, len(want.values), field.Len())
-		}
-		for row, value := range want.values {
-			if got, ok := field.ConcreteAt(row); !ok || got != value {
-				t.Errorf("field %q row %d: expected %v (%T), got %v (%T)", field.Name, row, value, value, got, got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := parseErrorResponse(tt.statusCode, []byte(tt.body))
+			if resp.Error == nil {
+				t.Fatal("expected an error response")
 			}
-		}
+			if got := resp.Error.Error(); got != tt.wantReason {
+				t.Errorf("expected error %q, got %q", tt.wantReason, got)
+			}
+			if resp.Status != tt.wantStatus {
+				t.Errorf("expected backend status %v, got %v", tt.wantStatus, resp.Status)
+			}
+		})
 	}
-	assertValueMapping(t, frame.Fields[1], "Critical", "rgb(160, 0, 0)")
-	assertValueMapping(t, frame.Fields[2], "Acknowledged", "greenyellow")
+}
+
+func assertValueMapping(t *testing.T, field *data.Field, value, color string) {
+	t.Helper()
+	if field.Config == nil || len(field.Config.Mappings) != 1 {
+		t.Fatalf("field %q: expected one value mapping", field.Name)
+	}
+	mapper, ok := field.Config.Mappings[0].(data.ValueMapper)
+	if !ok {
+		t.Fatalf("field %q: expected a ValueMapper, got %T", field.Name, field.Config.Mappings[0])
+	}
+	got, ok := mapper[value]
+	if !ok || got.Text != value || got.Color != color {
+		t.Errorf("field %q: expected %q mapping with text %q and color %q, got %+v (found %v)", field.Name, value, value, color, got, ok)
+	}
+}
+
+func TestQueryErrorsFromServerAreReported(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"reason": "Query not found"}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "objectQueries", map[string]any{"objectQueryId": "99"})
+	if resp.Error == nil || !strings.Contains(resp.Error.Error(), "Query not found") {
+		t.Errorf("expected server reason in error, got %v", resp.Error)
+	}
+	resp = runSingleQuery(t, ds, settings, "summaryTables", map[string]any{"sourceObjectId": "1"})
+	if resp.Error == nil || !strings.Contains(resp.Error.Error(), "summaryTableId is required") {
+		t.Errorf("expected validation error, got %v", resp.Error)
+	}
 }

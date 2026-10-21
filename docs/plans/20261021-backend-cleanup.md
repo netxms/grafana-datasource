@@ -106,10 +106,10 @@ Backend tests: `pkg/plugin/datasource_fixes_test.go` (removed), `pkg/plugin/data
 
 This comes first, so the tests in later tasks go straight into their final files. No test changes what it asserts.
 
-- [ ] every test from the fixes file lives in the area file it belongs to; helpers are in `datasource_test.go`
-- [ ] `TestQueryData` builds its instance with `newTestDatasource`; its payload and auth-header check are unchanged
-- [ ] the same set of test functions runs before and after (compare `go test -list . ./pkg/plugin`)
-- [ ] commit `test: split fixes test file by area`
+- [x] every test from the fixes file lives in the area file it belongs to; helpers are in `datasource_test.go`
+- [x] `TestQueryData` builds its instance with `newTestDatasource`; its payload and auth-header check are unchanged
+- [x] the same set of test functions runs before and after (compare `go test -list . ./pkg/plugin`)
+- [x] commit `test: split fixes test file by area`
 
 ### Task 2: Keep one NetXMS client per datasource instance
 
