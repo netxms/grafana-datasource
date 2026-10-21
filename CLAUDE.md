@@ -15,4 +15,5 @@ NetXMS datasource plugin for Grafana: Go backend (`pkg/`) + TypeScript/React fro
 ## CI and release
 - e2e needs no secrets, so Dependabot PRs run it too. `publish-report` is skipped for them (read-only token).
 - The plugin validator is blocking. Unfixable vulnerabilities are excepted, with an expiry, in `.github/osv-scanner-validator.toml`.
+- `CHANGELOG.md` is for plugin users, not developers: one short line per change they would notice, saying what they see now. Leave out CI, tooling, tests, the dev environment and internals; dependency and vulnerability fixes go in one Security line.
 - `v*` tags create a draft GitHub release. Publishing it and submitting the zip URL to the Grafana catalog (grafana.com → My Plugins → Submit Plugin) is manual.
