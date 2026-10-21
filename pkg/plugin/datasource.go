@@ -24,11 +24,6 @@ import (
 	"github.com/raden-solutions/net-xms/pkg/models"
 )
 
-// Make sure Datasource implements required interfaces. This is important to do
-// since otherwise we will only get a not implemented error response from plugin in
-// runtime. In this example datasource instance implements backend.QueryDataHandler,
-// backend.CheckHealthHandler interfaces. Plugin should not implement all these
-// interfaces - only those which are required for a particular task.
 var (
 	_ backend.QueryDataHandler      = (*NetXMSDatasource)(nil)
 	_ backend.CheckHealthHandler    = (*NetXMSDatasource)(nil)
@@ -140,9 +135,6 @@ func NewDatasource(_ context.Context, settings backend.DataSourceInstanceSetting
 	return ds, nil
 }
 
-// Dispose here tells plugin SDK that plugin wants to clean up resources when a new instance
-// created. As soon as datasource settings change detected by SDK old datasource instance will
-// be disposed and a new one will be created using NewSampleDatasource factory function.
 func (d *NetXMSDatasource) Dispose() {}
 
 type queryModel struct {
@@ -203,10 +195,6 @@ func (d *NetXMSDatasource) QueryData(ctx context.Context, req *backend.QueryData
 	return resp, nil
 }
 
-// QueryData handles multiple queries and returns multiple responses.
-// req contains the queries []DataQuery (where each query contains RefID as a unique identifier).
-// The QueryDataResponse contains a map of RefID to the response for each query, and each response
-// contains Frames ([]*Frame).
 func (d *NetXMSDatasource) handleAlarmQuery(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
 
@@ -886,7 +874,6 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 		for _, obj := range statusData {
 			frame := data.NewFrame(obj.Name)
 
-			// Use DisplayName to show object name in stat panel
 			nameField := data.NewField("Name", nil, []string{obj.Name})
 			nameField.Config = &data.FieldConfig{
 				Mappings: data.ValueMappings{

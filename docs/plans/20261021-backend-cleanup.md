@@ -194,9 +194,9 @@ Remove:
 - the DisplayName comment above code that sets none;
 - the unused `DataPoint` / `DataSourceResponse` types.
 
-- [ ] no `Sample` references remain in `pkg/`; `DataPoint` / `DataSourceResponse` are gone
-- [ ] `mage coverage`, `golangci-lint run ./...`, `yarn typecheck`, `yarn lint` pass
-- [ ] commit `chore: remove scaffold leftovers`
+- [x] no `Sample` references remain in `pkg/`; `DataPoint` / `DataSourceResponse` are gone
+- [x] `mage coverage`, `golangci-lint run ./...`, `yarn typecheck`, `yarn lint` pass
+- [x] commit `chore: remove scaffold leftovers`
 
 ### Task 8: Assert the alarm query result in e2e
 

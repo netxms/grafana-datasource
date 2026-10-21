@@ -13,15 +13,6 @@ export const DEFAULT_QUERY: Partial<NetXMSQuery> = {
   sourceObjectId: undefined,
 };
 
-export interface DataPoint {
-  Time: number;
-  Value: number;
-}
-
-export interface DataSourceResponse {
-  datapoints: DataPoint[];
-}
-
 /**
  * These are options configured for each DataSource instance
  */
