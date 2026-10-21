@@ -79,11 +79,12 @@ Cases:
 - Successive valid JSON values (`{"name":"a"}` → `"ab"` → `"abc"`): `onChange` receives each latest value, `onRunQuery` is never called, and blur calls it exactly once.
 - Table-driven blur guards: malformed JSON → no run; empty parameters with a query selected → one run; no query selected → no run.
 
-- [ ] typing in Query parameters no longer runs the query; leaving the field runs it once when the query is valid
-- [ ] jest can render `QueryEditor` through the root config overrides; `.config/` untouched
-- [ ] `QueryEditor.test.tsx` covers the cases above; `yarn test:ci`, `yarn typecheck` and `yarn lint` pass
-- [ ] CHANGELOG `[Unreleased]` / Bug Fixes entry (#27)
-- [ ] commit `fix: run object query on blur of the parameters field`
+- [x] typing in Query parameters no longer runs the query; leaving the field runs it once when the query is valid
+- [x] jest can render `QueryEditor` through the root config overrides; `.config/` untouched
+- [x] `QueryEditor.test.tsx` covers the cases above; `yarn test:ci`, `yarn typecheck` and `yarn lint` pass
+- [x] CHANGELOG `[Unreleased]` / Bug Fixes entry (#27)
+- [x] commit `fix: run object query on blur of the parameters field`
+- ➕ The test imports `act` from `react`: the `@testing-library/react` 14 re-export goes through `react-dom/test-utils` and lint flags it as deprecated.
 
 ### Task 3: Cover status colours, the version boundary and alarm fields
 
