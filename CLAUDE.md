@@ -1,83 +1,18 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+NetXMS datasource plugin for Grafana: Go backend (`pkg/`) + TypeScript/React frontend (`src/`), querying NetXMS through its WebAPI. Requires NetXMS 5.2.4+ with the webAPI module.
 
-## Project Overview
+## Commands
+- `yarn test` is watch mode and never exits; use `yarn test:ci`. Backend tests: `mage coverage`.
+- Build the backend with `mage buildAll` locally (not `build:linux`): the Grafana container is arm64 on Apple Silicon.
+- `yarn server` (`docker compose up --build`) starts Grafana at http://localhost:3000 plus a `netxms` test server (`ghcr.io/netxms/server-e2e`, amd64 only). `yarn e2e` needs it running.
 
-NetXMS datasource plugin for Grafana. Hybrid Go backend + TypeScript/React frontend plugin that queries the NetXMS monitoring system via its web API. Plugin ID: `radensolutions-netxms-datasource`.
+## Dev environment
+- The provisioned datasource reads `$NX_SERVER_ADDRESS` / `$NX_API_KEY`. Defaults are in the committed `.env`, read by Compose and loaded by `playwright.config.ts`. The key is public and only valid for the test server. Shell variables override `.env`.
+- Keep `GRAFANA_VERSION` out of `.env`: `@grafana/plugin-e2e` prefers it over the running Grafana's version. Its default lives in `docker-compose.yaml`.
+- `.config/` is `@grafana/create-plugin` scaffolding, refreshed by `cp-update.yml`. Don't edit it.
 
-Requires NetXMS server 5.2.4+ with webAPI module enabled. Minimum Grafana version is `grafanaDependency` in `src/plugin.json`.
-
-## Common Commands
-
-### Build
-```bash
-yarn build              # Frontend production build (outputs to dist/)
-yarn dev                # Frontend watch mode with live reload
-mage buildAll           # Backend build (Go binaries to dist/)
-mage build:linux        # Backend build for Linux only
-```
-
-### Test
-```bash
-yarn test               # Jest unit tests (watch mode)
-yarn test:ci            # Jest unit tests (CI, no watch)
-mage coverage           # Go backend tests with coverage
-yarn e2e                # Playwright e2e tests (needs running Grafana)
-```
-
-### Lint & Typecheck
-```bash
-yarn lint               # ESLint
-yarn lint:fix           # ESLint + Prettier auto-fix
-yarn typecheck          # TypeScript type checking
-```
-
-### Local Development
-```bash
-yarn server             # Starts Grafana in Docker with plugin mounted
-```
-Grafana runs at http://localhost:3000, next to a `netxms` service (`ghcr.io/netxms/server-e2e`, amd64 only). The provisioned datasource reads `$NX_SERVER_ADDRESS` and `$NX_API_KEY`; their defaults live in the committed `.env`, which Compose reads for interpolation and `playwright.config.ts` loads via `process.loadEnvFile`. The `.env` key is public and only valid for that test server. Shell variables override `.env` for both. Keep `GRAFANA_VERSION` out of `.env`: `@grafana/plugin-e2e` prefers `process.env.GRAFANA_VERSION` over the running Grafana's version, so its default is set in `docker-compose.yaml` instead. Build the backend with `mage buildAll` locally: the Grafana container is arm64 on Apple Silicon.
-
-## Architecture
-
-### Frontend → Backend Communication
-
-1. **Resource requests**: Frontend `datasource.ts` calls `getResource("/path")` → backend HTTP handlers serve dropdown data (object lists, DCI lists, etc.)
-2. **Query requests**: Grafana calls `QueryData` → backend `QueryTypeMux` routes to handler by query type → handler calls NetXMS API → returns Grafana data frames
-
-### Query Types
-- `alarms` — alarm list with severity/state color coding
-- `dciValues` — time-series DCI history data
-- `summaryTables` — tabular data with dynamic columns
-- `objectQueries` — custom queries with optional JSON parameters
-- `objectStatus` — object status with color-coded mappings (one frame per object)
-
-### Backend (Go, `pkg/`)
-- `pkg/main.go` — entry point, registers plugin with Grafana SDK
-- `pkg/models/settings.go` — config deserialization (serverAddress + apiKey)
-- `pkg/plugin/datasource.go` — all query handlers, resource endpoints, health check. This is the main file
-
-All NetXMS API calls use Bearer token auth. HTTP client has 10-second timeout.
-
-### Frontend (TypeScript/React, `src/`)
-- `src/module.ts` — plugin registration
-- `src/datasource.ts` — extends `DataSourceWithBackend`, resource fetch methods, query validation
-- `src/types.ts` — `NetXMSQuery`, `NetxmsSourceOptions`, `NetXMSSecureJsonData` interfaces
-- `src/components/QueryEditor.tsx` — query builder UI with conditional fields per query type
-- `src/components/ConfigEditor.tsx` — server address + API key inputs
-
-### Build Tooling
-- Frontend: Webpack 5 (config in `.config/webpack/`), SWC for transpilation
-- Backend: Go (version in `go.mod`), Mage with Grafana Plugin SDK build targets (`Magefile.go`). Binary name: `gpx_netxms` (configured in `src/plugin.json`)
-- Testing: Jest (`.config/jest/`), Playwright (`playwright.config.ts`)
-- Scaffolding config in `.config/` is from `@grafana/create-plugin` — avoid modifying these files directly
-
-### CI/CD (GitHub Actions)
-- `ci.yml` — typecheck, lint, test, build, sign, validate, e2e on multiple Grafana versions
-- `build-plugin.yml` — reusable workflow: build, test, sign (optional), package, run the Grafana plugin validator (blocking). Vulnerabilities without an upstream fix are excepted with an expiry date in `.github/osv-scanner-validator.toml`
-- `release.yml` — triggered by `v*` tags, calls `build-plugin.yml` with signing and creates a **draft** GitHub release with the zip + sha1. Publishing to the Grafana plugin catalog is a manual step (publish the draft, then submit the zip URL at grafana.com → My Plugins → Submit Plugin)
-- `security-scan.yml` — weekly and on dependency PRs, calls `build-plugin.yml` without signing; a failed scheduled run is emailed by GitHub
-- `cp-update.yml` — monthly, opens a PR when `@grafana/create-plugin` scaffolding (`.config/`) has a newer version
-- `dependabot.yml` — weekly grouped PRs for npm, Go modules and GitHub Actions
-- E2e tests run against the `netxms` service from `docker-compose.yaml` (`ghcr.io/netxms/server-e2e`, tag pinned there), started together with Grafana; no secrets are needed, so Dependabot PRs run e2e too (`publish-report` is skipped for them, their token is read-only)
+## CI and release
+- e2e needs no secrets, so Dependabot PRs run it too. `publish-report` is skipped for them (read-only token).
+- The plugin validator is blocking. Unfixable vulnerabilities are excepted, with an expiry, in `.github/osv-scanner-validator.toml`.
+- `v*` tags create a draft GitHub release. Publishing it and submitting the zip URL to the Grafana catalog (grafana.com → My Plugins → Submit Plugin) is manual.
