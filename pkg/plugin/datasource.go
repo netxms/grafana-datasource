@@ -1139,10 +1139,12 @@ func parseInputFields(raw string) (map[string]any, error) {
 // forwarded as is: a 401 from a plugin resource makes Grafana's frontend treat it as an expired
 // Grafana session and start token rotation.
 func writeResourceError(rw http.ResponseWriter, statusCode int, body []byte) {
-	reason := "Request error"
-	var reasonResp map[string]string
-	if err := json.Unmarshal(body, &reasonResp); err == nil && reasonResp["reason"] != "" {
-		reason = reasonResp["reason"]
+	reason := httpStatusErrorMessage(statusCode)
+	var reasonResp struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &reasonResp); err == nil && reasonResp.Reason != "" {
+		reason = reasonResp.Reason
 	} else if statusCode == http.StatusUnauthorized {
 		reason = "Unauthorized: Invalid API key"
 	}
@@ -1154,11 +1156,22 @@ func writeResourceError(rw http.ResponseWriter, statusCode int, body []byte) {
 
 // parseErrorResponse extracts error message from response body and returns appropriate DataResponse
 func parseErrorResponse(statusCode int, body []byte) backend.DataResponse {
-	var reasonResp map[string]string
-	if err := json.Unmarshal(body, &reasonResp); err == nil && reasonResp["reason"] != "" {
-		return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), "Request error: "+reasonResp["reason"])
+	var reasonResp struct {
+		Reason string `json:"reason"`
 	}
-	return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), "Request error")
+	if err := json.Unmarshal(body, &reasonResp); err == nil && reasonResp.Reason != "" {
+		return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), "Request error: "+reasonResp.Reason)
+	}
+	return backend.ErrDataResponse(httpStatusToBackendStatus(statusCode), httpStatusErrorMessage(statusCode))
+}
+
+// httpStatusErrorMessage describes an HTTP error when NetXMS supplies no reason.
+func httpStatusErrorMessage(statusCode int) string {
+	message := fmt.Sprintf("Request error: %d", statusCode)
+	if statusText := http.StatusText(statusCode); statusText != "" {
+		message += " " + statusText
+	}
+	return message
 }
 
 // httpStatusToBackendStatus maps HTTP status codes to backend.Status

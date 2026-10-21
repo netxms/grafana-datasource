@@ -59,10 +59,10 @@ Tests:
 - A table test for `parseErrorResponse` asserting the exact message and backend status. Cases: reason present, `{}`, empty reason, non-JSON body, bare 401/403/404, and 599, which Go has no status text for (message `Request error: 599`, backend status `StatusInternal`). The 401 row is unit-level only: every query handler answers 401 itself before calling `parseErrorResponse`.
 - Extend `TestResourceHandlerForwardsUpstreamErrors` to cover a body reason, a bare 401 and a bare 403. Assert the exact decoded `reason` and the 502 status, not a substring.
 
-- [ ] queries and resource calls show `Request error: 403 Forbidden` / `404 Not Found` when NetXMS sends no reason; reasons the server sends and the resource 401 message are unchanged
-- [ ] tests above pass with `mage coverage`; `golangci-lint run ./...` is clean
-- [ ] CHANGELOG `[Unreleased]` / Bug Fixes entry (#27)
-- [ ] commit `fix: report HTTP status when NetXMS error has no reason`
+- [x] queries and resource calls show `Request error: 403 Forbidden` / `404 Not Found` when NetXMS sends no reason; reasons the server sends and the resource 401 message are unchanged
+- [x] tests above pass with `mage coverage`; `golangci-lint run ./...` is clean
+- [x] CHANGELOG `[Unreleased]` / Bug Fixes entry (#27)
+- [x] commit `fix: report HTTP status when NetXMS error has no reason`
 
 ### Task 2: Run the object query when the parameters field loses focus
 

@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Require Grafana 12.4.0 or later (was 10.4.0), the oldest Grafana line still [supported upstream](https://grafana.com/docs/grafana/latest/upgrade-guide/when-to-upgrade/). The query type selector uses `Combobox`, which is unavailable before Grafana 11.5; on Grafana 10.4–11.4 the query type selector did not render (#26)
 
 ### Bug Fixes
+- NetXMS errors without a reason now show the HTTP status code and description in queries and dropdown requests (#27)
 - Numeric DCI history passes the query's max data points to NetXMS, which averages raw samples into roughly that many buckets (timestamps are bucket starts). When NetXMS reads raw samples, a long range of a numeric DCI no longer loses its beginning to the server's 200000-row limit, and the browser receives about one point per pixel instead of every sample. When NetXMS aggregation is enabled the server may answer from hourly or daily aggregates instead, which can be coarser than the requested resolution (#24)
 - DCI history served from NetXMS hourly/daily aggregates (when `DataCollection.Aggregation.Enabled` is on) is shown, instead of an empty string series. Hourly/daily series carry their step as the field interval, so missing hours or days show as gaps (#24)
 - A warning notice is shown when NetXMS returns its 200000-row limit for a DCI series, which can still happen for string DCIs, queries without max data points, and very long hourly/daily ranges (#24)

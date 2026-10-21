@@ -307,36 +307,93 @@ func TestParseInputFields(t *testing.T) {
 	}
 }
 
+func TestParseErrorResponse(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantReason string
+		wantStatus backend.Status
+	}{
+		{"reason present", http.StatusForbidden, `{"reason":"Access denied"}`, "Request error: Access denied", backend.StatusForbidden},
+		{"reason with non-string fields", http.StatusInternalServerError, `{"reason":"Query error","errorCode":5,"diagnostic":{"line":1}}`, "Request error: Query error", backend.StatusInternal},
+		{"empty object", http.StatusNotFound, `{}`, "Request error: 404 Not Found", backend.StatusNotFound},
+		{"empty reason", http.StatusForbidden, `{"reason":""}`, "Request error: 403 Forbidden", backend.StatusForbidden},
+		{"non-JSON body", http.StatusBadRequest, `Bad request`, "Request error: 400 Bad Request", backend.StatusBadRequest},
+		// Query handlers handle 401 before calling parseErrorResponse; this row tests the helper itself.
+		{"bare 401", http.StatusUnauthorized, "", "Request error: 401 Unauthorized", backend.StatusUnauthorized},
+		{"bare 403", http.StatusForbidden, "", "Request error: 403 Forbidden", backend.StatusForbidden},
+		{"bare 404", http.StatusNotFound, "", "Request error: 404 Not Found", backend.StatusNotFound},
+		{"unknown status text", 599, "", "Request error: 599", backend.StatusInternal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := parseErrorResponse(tt.statusCode, []byte(tt.body))
+			if resp.Error == nil {
+				t.Fatal("expected an error response")
+			}
+			if got := resp.Error.Error(); got != tt.wantReason {
+				t.Errorf("expected error %q, got %q", tt.wantReason, got)
+			}
+			if resp.Status != tt.wantStatus {
+				t.Errorf("expected backend status %v, got %v", tt.wantStatus, resp.Status)
+			}
+		})
+	}
+}
+
 func TestResourceHandlerForwardsUpstreamErrors(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"reason": "Invalid API key"}`))
-	}))
-	defer server.Close()
-
-	ds, settings := newTestDatasource(t, server.URL)
-
-	var gotStatus int
-	var gotBody string
-	sender := backend.CallResourceResponseSenderFunc(func(res *backend.CallResourceResponse) error {
-		gotStatus = res.Status
-		gotBody += string(res.Body)
-		return nil
-	})
-	err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
-		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
-		Path:          "alarmObjects",
-		Method:        http.MethodGet,
-	}, sender)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantReason string
+	}{
+		{"reason overrides 401", http.StatusUnauthorized, `{"reason":"Invalid API key"}`, "Invalid API key"},
+		{"reason overrides 403", http.StatusForbidden, `{"reason":"Access denied"}`, "Access denied"},
+		{"reason with non-string fields", http.StatusForbidden, `{"reason":"Query error","errorCode":5}`, "Query error"},
+		{"bare 401", http.StatusUnauthorized, "", "Unauthorized: Invalid API key"},
+		{"bare 403", http.StatusForbidden, "", "Request error: 403 Forbidden"},
+		{"bare 404", http.StatusNotFound, "", "Request error: 404 Not Found"},
 	}
-	if gotStatus != http.StatusBadGateway {
-		t.Errorf("expected upstream 401 to be reported as 502, got %d", gotStatus)
-	}
-	if !strings.Contains(gotBody, "Invalid API key") {
-		t.Errorf("expected reason in body, got %q", gotBody)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			ds, settings := newTestDatasource(t, server.URL)
+			var gotStatus int
+			var gotBody []byte
+			sender := backend.CallResourceResponseSenderFunc(func(res *backend.CallResourceResponse) error {
+				gotStatus = res.Status
+				gotBody = append(gotBody, res.Body...)
+				return nil
+			})
+			err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
+				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+				Path:          "alarmObjects",
+				Method:        http.MethodGet,
+			}, sender)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotStatus != http.StatusBadGateway {
+				t.Errorf("expected upstream %d to be reported as 502, got %d", tt.statusCode, gotStatus)
+			}
+			var parsed struct {
+				Reason string `json:"reason"`
+			}
+			if err := json.Unmarshal(gotBody, &parsed); err != nil {
+				t.Fatalf("invalid JSON %q: %v", gotBody, err)
+			}
+			if parsed.Reason != tt.wantReason {
+				t.Errorf("expected reason %q, got %q", tt.wantReason, parsed.Reason)
+			}
+		})
 	}
 }
 
