@@ -126,7 +126,19 @@ func TestQueryData(t *testing.T) {
 			}
 		}
 	}
-	assertValueMapping(t, frame.Fields[1], "Critical", "rgb(160, 0, 0)")
+	for _, severity := range []struct{ name, color string }{
+		{"Normal", "rgb(0, 137, 0)"},
+		{"Warning", "rgb(0, 142, 145)"},
+		{"Minor", "rgb(201, 198, 0)"},
+		{"Major", "rgb(223, 102, 0)"},
+		{"Critical", "rgb(160, 0, 0)"},
+		{"Unknown", "rgb(33, 33, 248)"},
+		{"Unmanaged", "rgb(113, 113, 113)"},
+		{"Disabled", "rgb(100, 41, 0)"},
+		{"Testing", "rgb(138, 0, 143)"},
+	} {
+		assertValueMapping(t, frame.Fields[1], severity.name, severity.color)
+	}
 	assertValueMapping(t, frame.Fields[2], "Acknowledged", "greenyellow")
 }
 

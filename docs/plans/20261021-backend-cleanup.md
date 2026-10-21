@@ -149,10 +149,10 @@ Tests:
 
 Backend: `pkg/plugin/datasource.go` (colour table, alarm `Severity` mapping, `objectStatusColor`), `docs/backlog/severity-colours-duplicate-status-table.md` (deleted).
 
-- [ ] the nine name/colour pairs exist once; alarm mapping and status colour are built from them
-- [ ] existing colour tests pass unchanged, still with their own hard-coded colours
-- [ ] backlog file deleted
-- [ ] commit `refactor: build severity colours from one table`
+- [x] the nine name/colour pairs exist once; alarm mapping and status colour are built from them
+- [x] existing colour tests pass unchanged, still with their own hard-coded colours
+- [x] backlog file deleted
+- [x] commit `refactor: build severity colours from one table`
 
 ### Task 5: Decode table rows in one pass
 

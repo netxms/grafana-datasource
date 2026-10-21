@@ -272,20 +272,12 @@ func (d *NetXMSDatasource) query(ctx context.Context, rootObjectId string) backe
 	}
 
 	severityField := data.NewField("Severity", nil, severities)
+	severityMapping := make(data.ValueMapper, len(severityColors))
+	for _, severity := range severityColors {
+		severityMapping[severity.name] = data.ValueMappingResult{Text: severity.name, Color: severity.color}
+	}
 	severityField.Config = &data.FieldConfig{
-		Mappings: data.ValueMappings{
-			data.ValueMapper{
-				"Normal":    {Text: "Normal", Color: "rgb(0, 137, 0)"},
-				"Warning":   {Text: "Warning", Color: "rgb(0, 142, 145)"},
-				"Minor":     {Text: "Minor", Color: "rgb(201, 198, 0)"},
-				"Major":     {Text: "Major", Color: "rgb(223, 102, 0)"},
-				"Critical":  {Text: "Critical", Color: "rgb(160, 0, 0)"},
-				"Unknown":   {Text: "Unknown", Color: "rgb(33, 33, 248)"},
-				"Unmanaged": {Text: "Unmanaged", Color: "rgb(113, 113, 113)"},
-				"Disabled":  {Text: "Disabled", Color: "rgb(100, 41, 0)"},
-				"Testing":   {Text: "Testing", Color: "rgb(138, 0, 143)"},
-			},
-		},
+		Mappings: data.ValueMappings{severityMapping},
 	}
 	stateField := data.NewField("State", nil, states)
 	stateField.Config = &data.FieldConfig{
@@ -834,21 +826,22 @@ type objectStatusResponse struct {
 	Status int32  `json:"Status"`
 }
 
-var objectStatusColors = [...]string{
-	"rgb(0, 137, 0)",     // Normal
-	"rgb(0, 142, 145)",   // Warning
-	"rgb(201, 198, 0)",   // Minor
-	"rgb(223, 102, 0)",   // Major
-	"rgb(160, 0, 0)",     // Critical
-	"rgb(33, 33, 248)",   // Unknown
-	"rgb(113, 113, 113)", // Unmanaged
-	"rgb(100, 41, 0)",    // Disabled
-	"rgb(138, 0, 143)",   // Testing
+// severityColors follows the numeric object status order used by NetXMS.
+var severityColors = [...]struct{ name, color string }{
+	{"Normal", "rgb(0, 137, 0)"},
+	{"Warning", "rgb(0, 142, 145)"},
+	{"Minor", "rgb(201, 198, 0)"},
+	{"Major", "rgb(223, 102, 0)"},
+	{"Critical", "rgb(160, 0, 0)"},
+	{"Unknown", "rgb(33, 33, 248)"},
+	{"Unmanaged", "rgb(113, 113, 113)"},
+	{"Disabled", "rgb(100, 41, 0)"},
+	{"Testing", "rgb(138, 0, 143)"},
 }
 
 func objectStatusColor(status int32) string {
-	if status >= 0 && int(status) < len(objectStatusColors) {
-		return objectStatusColors[status]
+	if status >= 0 && int(status) < len(severityColors) {
+		return severityColors[status].color
 	}
 	return "rgb(128, 128, 128)"
 }
