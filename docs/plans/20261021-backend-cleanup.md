@@ -85,18 +85,16 @@ The design was settled with the user and Codex. The work lands as eight commits 
 
 ## Tandem
 
-Roster to be agreed with Codex before execution.
-
 | Task | Writer | Reviewer |
 |------|--------|----------|
-| 1 | | |
-| 2 | | |
-| 3 | | |
-| 4 | | |
-| 5 | | |
-| 6 | | |
-| 7 | | |
-| 8 | | |
+| 1 | codex | claude |
+| 2 | claude | codex |
+| 3 | claude | codex |
+| 4 | codex | claude |
+| 5 | claude | codex |
+| 6 | codex | claude |
+| 7 | claude | codex |
+| 8 | codex | claude |
 
 ## Implementation Steps
 
