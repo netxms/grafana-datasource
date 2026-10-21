@@ -1,6 +1,6 @@
 module github.com/netxms/grafana-datasource
 
-go 1.26.9
+go 1.26.10
 
 require github.com/grafana/grafana-plugin-sdk-go v0.297.0
 
