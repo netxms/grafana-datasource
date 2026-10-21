@@ -160,9 +160,9 @@ Backend: `pkg/plugin/datasource.go` (row decoder, `decodeTableRows`), `pkg/plugi
 
 Tests: `TestTableQueryColumnUnion` already covers duplicate keys and non-object rows, and must pass unchanged. Malformed row bytes can't reach the decoder through the handler, which unmarshals the outer array first. Add one direct decoder test for that case.
 
-- [ ] each row is decoded once, without the `RawMessage` step
-- [ ] direct malformed-row decoder test added
-- [ ] commit `refactor: decode table rows in one pass`
+- [x] each row is decoded once, without the `RawMessage` step
+- [x] direct malformed-row decoder test added
+- [x] commit `refactor: decode table rows in one pass`
 
 ### Task 6: Compare server versions by numeric parts
 

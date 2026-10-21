@@ -628,41 +628,42 @@ func dciTierInterval(tierServed string) time.Duration {
 	}
 }
 
-func decodeJSONKeyOrder(rawData []byte) ([]string, error) {
-	var raw json.RawMessage
-	if err := json.Unmarshal(rawData, &raw); err != nil {
-		return nil, fmt.Errorf("unmarshal raw JSON: %w", err)
-	}
-
+// decodeRow decodes a JSON object into a map and returns its keys in document order.
+func decodeRow(raw []byte) ([]string, map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if token, err := dec.Token(); err != nil || token != json.Delim('{') {
-		return nil, fmt.Errorf("expected object, got %v", token)
+		return nil, nil, fmt.Errorf("expected object, got %v", token)
 	}
 
 	var keys []string
+	row := make(map[string]any)
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
-			return nil, fmt.Errorf("read key token: %w", err)
+			return nil, nil, fmt.Errorf("read key token: %w", err)
 		}
 		keyStr, ok := key.(string)
 		if !ok {
-			return nil, fmt.Errorf("expected string key, got %v", key)
+			return nil, nil, fmt.Errorf("expected string key, got %v", key)
 		}
 
 		var value any
 		if err := dec.Decode(&value); err != nil {
-			return nil, fmt.Errorf("decode value for key %q: %w", keyStr, err)
+			return nil, nil, fmt.Errorf("decode value for key %q: %w", keyStr, err)
 		}
 
 		keys = append(keys, keyStr)
+		row[keyStr] = value
 	}
 
 	if _, err := dec.Token(); err != nil {
-		return nil, fmt.Errorf("read closing token: %w", err)
+		return nil, nil, fmt.Errorf("read closing token: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, nil, errors.New("unexpected data after object")
 	}
 
-	return keys, nil
+	return keys, row, nil
 }
 
 // decodeTableRows decodes each row into a map and returns the union of row keys in first-seen order,
@@ -672,7 +673,7 @@ func decodeTableRows(rawRows []json.RawMessage) ([]string, []map[string]any, err
 	seen := make(map[string]bool)
 	rows := make([]map[string]any, 0, len(rawRows))
 	for i, raw := range rawRows {
-		keys, err := decodeJSONKeyOrder(raw)
+		keys, row, err := decodeRow(raw)
 		if err != nil {
 			return nil, nil, fmt.Errorf("row %d: %w", i, err)
 		}
@@ -681,11 +682,6 @@ func decodeTableRows(rawRows []json.RawMessage) ([]string, []map[string]any, err
 				seen[key] = true
 				columns = append(columns, key)
 			}
-		}
-
-		var row map[string]any
-		if err := json.Unmarshal(raw, &row); err != nil {
-			return nil, nil, fmt.Errorf("row %d: %w", i, err)
 		}
 		rows = append(rows, row)
 	}

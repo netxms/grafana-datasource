@@ -268,3 +268,14 @@ func TestParseInputFields(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeTableRowsRejectsMalformedRow(t *testing.T) {
+	for _, raw := range []string{`{"A":`, `{"A":1`, `{"A":}`, `{} trailing`, `{} {}`, `{"A":1} !`} {
+		t.Run(raw, func(t *testing.T) {
+			_, _, err := decodeTableRows([]json.RawMessage{json.RawMessage(`{"B":2}`), json.RawMessage(raw)})
+			if err == nil || !strings.HasPrefix(err.Error(), "row 1: ") {
+				t.Errorf("expected row 1 error, got %v", err)
+			}
+		})
+	}
+}
