@@ -63,6 +63,7 @@ Tests:
 - [x] tests above pass with `mage coverage`; `golangci-lint run ./...` is clean
 - [x] CHANGELOG `[Unreleased]` / Bug Fixes entry (#27)
 - [x] commit `fix: report HTTP status when NetXMS error has no reason`
+- ➕ From the branch review: both helpers decode the body into a struct, not `map[string]string`. NetXMS sends `errorCode` and `diagnostic` beside `reason`, which made the map decode fail and drop the reason.
 
 ### Task 2: Run the object query when the parameters field loses focus
 
