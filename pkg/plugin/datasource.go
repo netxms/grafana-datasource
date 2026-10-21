@@ -21,7 +21,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/raden-solutions/net-xms/pkg/models"
+	"github.com/netxms/grafana-datasource/pkg/models"
 )
 
 var (

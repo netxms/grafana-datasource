@@ -1,4 +1,4 @@
-module github.com/raden-solutions/net-xms
+module github.com/netxms/grafana-datasource
 
 go 1.26.9
 
