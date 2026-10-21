@@ -20,23 +20,16 @@ func mockAlarmResponse() *httptest.Server {
 			return
 		}
 
-		// Mock alarm response
-		alarms := []alarmResponse{
-			{
-				Id:         1,
-				Severity:   "Critical",
-				State:      "Active",
-				Source:     "Test Source",
-				Message:    "Test Alarm",
-				Count:      1,
-				AckBy:      "Test User",
-				Created:    time.Now(),
-				LastChange: time.Now(),
-			},
-		}
-
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(alarms)
+		// Use wire-format keys independently of alarmResponse's JSON tags.
+		_, _ = w.Write([]byte(`[
+			{"Id":1,"Severity":"Critical","State":"Outstanding","Source":"First Source",
+			 "Message":"First Alarm","Count":2,"Ack/Resolve by":"",
+			 "Created":"2026-10-19T10:00:00.000Z","Last Change":"2026-10-19T10:05:00.000Z"},
+			{"Id":3,"Severity":"Major","State":"Acknowledged","Source":"Second Source",
+			 "Message":"Second Alarm","Count":4,"Ack/Resolve by":"Test User",
+			 "Created":"2026-10-20T11:00:00.000Z","Last Change":"2026-10-20T11:10:00.000Z"}
+		]`))
 	}))
 }
 
@@ -73,8 +66,6 @@ func TestQueryData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Debug print
-	t.Logf("Query JSON: %s", string(queryJSON))
 
 	resp, err := ds.QueryData(
 		context.Background(),
@@ -92,7 +83,7 @@ func TestQueryData(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	if len(resp.Responses) != 1 {
@@ -102,7 +93,7 @@ func TestQueryData(t *testing.T) {
 	// Verify the response contains our mock data
 	response := resp.Responses["A"]
 	if response.Error != nil {
-		t.Errorf("Expected no error, got: %v", response.Error)
+		t.Fatalf("Expected no error, got: %v", response.Error)
 	}
 
 	if len(response.Frames) != 1 {
@@ -114,8 +105,44 @@ func TestQueryData(t *testing.T) {
 		t.Errorf("Expected frame name 'alarms', got: %s", frame.Name)
 	}
 
-	// Verify the frame contains our mock data
 	if len(frame.Fields) != 9 {
-		t.Errorf("Expected 9 fields, got: %d", len(frame.Fields))
+		t.Fatalf("Expected 9 fields, got: %d", len(frame.Fields))
 	}
+
+	wantFields := []struct {
+		name   string
+		values [2]any
+	}{
+		{"Id", [2]any{uint32(1), uint32(3)}},
+		{"Severity", [2]any{"Critical", "Major"}},
+		{"State", [2]any{"Outstanding", "Acknowledged"}},
+		{"Source", [2]any{"First Source", "Second Source"}},
+		{"Message", [2]any{"First Alarm", "Second Alarm"}},
+		{"Count", [2]any{uint32(2), uint32(4)}},
+		{"Ack/Resolve by", [2]any{"", "Test User"}},
+		{"Created", [2]any{
+			time.Date(2026, time.October, 19, 10, 0, 0, 0, time.UTC),
+			time.Date(2026, time.October, 20, 11, 0, 0, 0, time.UTC),
+		}},
+		{"Last Change", [2]any{
+			time.Date(2026, time.October, 19, 10, 5, 0, 0, time.UTC),
+			time.Date(2026, time.October, 20, 11, 10, 0, 0, time.UTC),
+		}},
+	}
+	for i, want := range wantFields {
+		field := frame.Fields[i]
+		if field.Name != want.name {
+			t.Errorf("field %d: expected name %q, got %q", i, want.name, field.Name)
+		}
+		if field.Len() != len(want.values) {
+			t.Fatalf("field %q: expected %d rows, got %d", field.Name, len(want.values), field.Len())
+		}
+		for row, value := range want.values {
+			if got, ok := field.ConcreteAt(row); !ok || got != value {
+				t.Errorf("field %q row %d: expected %v (%T), got %v (%T)", field.Name, row, value, value, got, got)
+			}
+		}
+	}
+	assertValueMapping(t, frame.Fields[1], "Critical", "rgb(160, 0, 0)")
+	assertValueMapping(t, frame.Fields[2], "Acknowledged", "greenyellow")
 }

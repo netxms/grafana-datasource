@@ -936,6 +936,25 @@ type objectStatusResponse struct {
 	Status int32  `json:"Status"`
 }
 
+var objectStatusColors = [...]string{
+	"rgb(0, 137, 0)",     // Normal
+	"rgb(0, 142, 145)",   // Warning
+	"rgb(201, 198, 0)",   // Minor
+	"rgb(223, 102, 0)",   // Major
+	"rgb(160, 0, 0)",     // Critical
+	"rgb(33, 33, 248)",   // Unknown
+	"rgb(113, 113, 113)", // Unmanaged
+	"rgb(100, 41, 0)",    // Disabled
+	"rgb(138, 0, 143)",   // Testing
+}
+
+func objectStatusColor(status int32) string {
+	if status >= 0 && int(status) < len(objectStatusColors) {
+		return objectStatusColors[status]
+	}
+	return "rgb(128, 128, 128)"
+}
+
 func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	response := backend.NewQueryDataResponse()
 
@@ -1012,33 +1031,16 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 			continue
 		}
 
-		color := []string{
-			"rgb(0, 137, 0)",     // Normal
-			"rgb(0, 142, 145)",   // Warning
-			"rgb(201, 198, 0)",   // Minor
-			"rgb(223, 102, 0)",   // Major
-			"rgb(160, 0, 0)",     // Critical
-			"rgb(33, 33, 248)",   // Unknown
-			"rgb(113, 113, 113)", // Unmanaged
-			"rgb(100, 41, 0)",    // Disabled
-			"rgb(138, 0, 143)",   // Testing
-		}
-
 		frames := make(data.Frames, 0, len(statusData))
 		for _, obj := range statusData {
 			frame := data.NewFrame(obj.Name)
-
-			statusColor := "rgb(128, 128, 128)"
-			if obj.Status >= 0 && int(obj.Status) < len(color) {
-				statusColor = color[obj.Status]
-			}
 
 			// Use DisplayName to show object name in stat panel
 			nameField := data.NewField("Name", nil, []string{obj.Name})
 			nameField.Config = &data.FieldConfig{
 				Mappings: data.ValueMappings{
 					data.ValueMapper{
-						obj.Name: {Text: obj.Name, Color: statusColor},
+						obj.Name: {Text: obj.Name, Color: objectStatusColor(obj.Status)},
 					},
 				},
 			}

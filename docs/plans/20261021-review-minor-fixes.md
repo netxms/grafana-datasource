@@ -99,9 +99,9 @@ Tests:
   - `TestQueryData` checks the frame and field count first and stops (fatal) if they are wrong. It then asserts the values of all nine fields, the parsed UTC times, and that the value mappings resolve (`Critical` → `rgb(160, 0, 0)`, `Acknowledged` → `greenyellow`).
   - Drop the debug `t.Logf`.
 
-- [ ] status colour lookup extracted; handler output unchanged (`null` still maps to Normal)
-- [ ] tests above pass with `mage coverage`; `golangci-lint run ./...` is clean
-- [ ] commit `test: cover status colours, version boundary and alarm fields`
+- [x] status colour lookup extracted; handler output unchanged (`null` still maps to Normal)
+- [x] tests above pass with `mage coverage`; `golangci-lint run ./...` is clean
+- [x] commit `test: cover status colours, version boundary and alarm fields`
 
 ### Task 4: Fix README errors and the `load` comment
 
