@@ -202,6 +202,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       {(query.queryType === 'summaryTables' || query.queryType === 'dciValues' || query.queryType === 'objectStatus') && (
         <InlineField label="Root object" labelWidth={16}>
           <Select
+            inputId="sourceObjectId"
             value={query.sourceObjectId}
             onChange={(v) => updateQuery({ ...query, sourceObjectId: v?.value, dciId: undefined })}
             options={objectList}
@@ -215,6 +216,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
       {query.queryType === 'summaryTables' && (
         <InlineField label="Summary table" labelWidth={16}>
           <Select
+            inputId="summaryTableId"
             value={query.summaryTableId}
             onChange={(v) => updateQuery({ ...query, summaryTableId: v?.value })}
             options={summaryTableList}
@@ -229,6 +231,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
         <>
           <InlineField label="Object query" labelWidth={16}>
             <Select
+              inputId="objectQueryId"
               value={query.objectQueryId}
               onChange={(v) => updateQuery({ ...query, objectQueryId: v?.value })}
               options={objectQueryList}
@@ -245,6 +248,7 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
           >
             {/* Runs on blur rather than per keystroke: each run is a server-side NXSL query */}
             <TextArea
+              id="queryParameters"
               value={query.queryParameters || ''}
               onChange={(e) => onChange({ ...query, queryParameters: e.currentTarget.value })}
               onBlur={() => {
