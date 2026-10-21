@@ -107,11 +107,11 @@ Tests:
 
 Docs and frontend comment: `README.md`, `src/README.md`, and the comment on `load` in `src/components/QueryEditor.tsx`.
 
-- [ ] `load` comment says that `setLoading(true)` runs synchronously, and that only the list/error state waits for the request and is dropped when superseded
-- [ ] root README releases link points to `https://github.com/netxms/grafana-datasource/releases`
-- [ ] both READMEs call the field **API address** and describe it like the config editor tooltip: the base URL of the NetXMS web API, without a path (e.g. `http://localhost:8000`)
-- [ ] root README has a Requirements list matching `src/README.md` (Grafana 12.4.0 or later; NetXMS 7.0.0 or later with WebAPI enabled)
-- [ ] commit `docs: fix README link and API address naming, load comment` with `Closes #27`
+- [x] `load` comment says that `setLoading(true)` runs synchronously, and that only the list/error state waits for the request and is dropped when superseded
+- [x] root README releases link points to `https://github.com/netxms/grafana-datasource/releases`
+- [x] both READMEs call the field **API address** and describe it like the config editor tooltip: the base URL of the NetXMS web API, without a path (e.g. `http://localhost:8000`)
+- [x] root README has a Requirements list matching `src/README.md` (Grafana 12.4.0 or later; NetXMS 7.0.0 or later with WebAPI enabled)
+- [x] commit `docs: fix README link and API address naming, load comment` with `Closes #27`
 
 ## Post-Completion
 

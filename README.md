@@ -13,9 +13,14 @@ The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS,
 - Support for custom queries and dynamic dashboards
 - Secure API key authentication
 
+## Requirements
+
+- Grafana 12.4.0 or later
+- NetXMS server 7.0.0 or later with WebAPI enabled
+
 ## Installation
 
-1. Download the latest release from the [releases page](https://github.com/grafana-datasource/releases).
+1. Download the latest release from the [releases page](https://github.com/netxms/grafana-datasource/releases).
 2. Unzip the plugin into your Grafana plugins directory.
 3. Restart Grafana.
 4. Navigate to **Configuration > Data Sources** and add "NetXMS" as a new data source.
@@ -30,7 +35,7 @@ NetXMS server configuration:
 
 Grafana configuration:
 
-- **Server Address:** URL of your NetXMS server (e.g., `http://localhost:8000`)
+- **API address:** base URL of the NetXMS web API, without a path (e.g., `http://localhost:8000`)
 - **API Key:** Your NetXMS API key issued in previous step
 
 ## Usage

@@ -35,7 +35,7 @@ The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS,
 1. Navigate to **Configuration > Data Sources**
 2. Add "NetXMS" as a new data source
 3. Configure the following:
-   - **Server Address:** URL of your NetXMS server (e.g., `http://localhost:8000`)
+   - **API address:** base URL of the NetXMS web API, without a path (e.g., `http://localhost:8000`)
    - **API Key:** Your NetXMS API key issued in the previous step
 
 ## Usage

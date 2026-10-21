@@ -38,9 +38,10 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
   const [isLoadingDcis, setIsLoadingDcis] = useState(false);
   const [loadErrors, setLoadErrors] = useState<Record<string, LoadError>>({});
 
-  // Loads one dropdown list. Results of a request that was superseded (query type or root
-  // object changed meanwhile) are dropped via isCancelled. State is only updated after the
-  // request completes, never synchronously from the calling effect.
+  // Loads one dropdown list. Only setLoading(true) runs synchronously from the calling effect;
+  // the list, its error and the end of loading are set once the request completes, and are
+  // dropped via isCancelled if the request was superseded (query type or root object changed
+  // meanwhile).
   const load = useCallback(
     async (
       list: string,
