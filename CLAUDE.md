@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NetXMS datasource plugin for Grafana. Hybrid Go backend + TypeScript/React frontend plugin that queries the NetXMS monitoring system via its web API. Plugin ID: `radensolutions-netxms-datasource`.
 
-Requires NetXMS server 5.2.4+ with webAPI module enabled. Requires Grafana 12.4.0+.
+Requires NetXMS server 5.2.4+ with webAPI module enabled. Minimum Grafana version is `grafanaDependency` in `src/plugin.json`.
 
 ## Common Commands
 
@@ -37,7 +37,7 @@ yarn typecheck          # TypeScript type checking
 ```bash
 yarn server             # Starts Grafana in Docker with plugin mounted
 ```
-Grafana runs at http://localhost:3000, next to a `netxms` service (`ghcr.io/netxms/server-e2e`, amd64 only). The provisioned datasource reads `$NX_SERVER_ADDRESS` and `$NX_API_KEY`; their defaults live in the committed `.env`, which Compose reads for interpolation and `playwright.config.ts` loads via `process.loadEnvFile`. The `.env` key is public and only valid for that test server. Shell variables override `.env` for both. Keep `GRAFANA_VERSION` out of `.env`: `@grafana/plugin-e2e` prefers `process.env.GRAFANA_VERSION` over the running Grafana's version, so its default (12.4.0) is set in `docker-compose.yaml` instead. Build the backend with `mage buildAll` locally: the Grafana container is arm64 on Apple Silicon.
+Grafana runs at http://localhost:3000, next to a `netxms` service (`ghcr.io/netxms/server-e2e`, amd64 only). The provisioned datasource reads `$NX_SERVER_ADDRESS` and `$NX_API_KEY`; their defaults live in the committed `.env`, which Compose reads for interpolation and `playwright.config.ts` loads via `process.loadEnvFile`. The `.env` key is public and only valid for that test server. Shell variables override `.env` for both. Keep `GRAFANA_VERSION` out of `.env`: `@grafana/plugin-e2e` prefers `process.env.GRAFANA_VERSION` over the running Grafana's version, so its default is set in `docker-compose.yaml` instead. Build the backend with `mage buildAll` locally: the Grafana container is arm64 on Apple Silicon.
 
 ## Architecture
 
@@ -56,7 +56,7 @@ Grafana runs at http://localhost:3000, next to a `netxms` service (`ghcr.io/netx
 ### Backend (Go, `pkg/`)
 - `pkg/main.go` — entry point, registers plugin with Grafana SDK
 - `pkg/models/settings.go` — config deserialization (serverAddress + apiKey)
-- `pkg/plugin/datasource.go` — all query handlers, resource endpoints, health check. This is the main file (~1000 lines)
+- `pkg/plugin/datasource.go` — all query handlers, resource endpoints, health check. This is the main file
 
 All NetXMS API calls use Bearer token auth. HTTP client has 10-second timeout.
 
@@ -69,7 +69,7 @@ All NetXMS API calls use Bearer token auth. HTTP client has 10-second timeout.
 
 ### Build Tooling
 - Frontend: Webpack 5 (config in `.config/webpack/`), SWC for transpilation
-- Backend: Go 1.26+, Mage with Grafana Plugin SDK build targets (`Magefile.go`). Binary name: `gpx_netxms` (configured in `src/plugin.json`)
+- Backend: Go (version in `go.mod`), Mage with Grafana Plugin SDK build targets (`Magefile.go`). Binary name: `gpx_netxms` (configured in `src/plugin.json`)
 - Testing: Jest (`.config/jest/`), Playwright (`playwright.config.ts`)
 - Scaffolding config in `.config/` is from `@grafana/create-plugin` — avoid modifying these files directly
 
@@ -80,4 +80,4 @@ All NetXMS API calls use Bearer token auth. HTTP client has 10-second timeout.
 - `security-scan.yml` — weekly and on dependency PRs, calls `build-plugin.yml` without signing; a failed scheduled run is emailed by GitHub
 - `cp-update.yml` — monthly, opens a PR when `@grafana/create-plugin` scaffolding (`.config/`) has a newer version
 - `dependabot.yml` — weekly grouped PRs for npm, Go modules and GitHub Actions
-- E2e tests run against the `netxms` service from `docker-compose.yaml` (`ghcr.io/netxms/server-e2e:7.0.0-e2e.1`), started together with Grafana; no secrets are needed, so Dependabot PRs run e2e too (`publish-report` is skipped for them, their token is read-only)
+- E2e tests run against the `netxms` service from `docker-compose.yaml` (`ghcr.io/netxms/server-e2e`, tag pinned there), started together with Grafana; no secrets are needed, so Dependabot PRs run e2e too (`publish-report` is skipped for them, their token is read-only)
