@@ -366,3 +366,24 @@ func frameNotices(frame *data.Frame) []data.Notice {
 func rawRow(ts string) string { return `{"timestamp": "` + ts + `", "value": "1"}` }
 
 func avgRow(ts string) string { return `{"timestamp": "` + ts + `", "avg": 1}` }
+
+func TestDciValuesRequestIsAuthorizedGetWithoutContentType(t *testing.T) {
+	var gotMethod, gotAuth string
+	gotContentType := []string{"unset"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Values("Content-Type")
+		_, _ = w.Write([]byte(`{"values": []}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runDciQuery(t, ds, settings, backend.TimeRange{}, 0)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+	if gotMethod != http.MethodGet || gotAuth != "Bearer test-key" || len(gotContentType) != 0 {
+		t.Errorf("expected authorized GET without Content-Type, got %s, %q, %q", gotMethod, gotAuth, gotContentType)
+	}
+}

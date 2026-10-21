@@ -105,3 +105,28 @@ type ObjectList struct {
 		ID   int    `json:"id"`
 	} `json:"objects"`
 }
+
+func TestResourceRequestIsAuthorizedGetWithoutContentType(t *testing.T) {
+	var gotMethod, gotAuth string
+	gotContentType := []string{"unset"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Values("Content-Type")
+		_, _ = w.Write([]byte(`{"objects": []}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	sender := backend.CallResourceResponseSenderFunc(func(*backend.CallResourceResponse) error { return nil })
+	if err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
+		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+		Path:          "alarmObjects",
+		Method:        http.MethodGet,
+	}, sender); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodGet || gotAuth != "Bearer test-key" || len(gotContentType) != 0 {
+		t.Errorf("expected authorized GET without Content-Type, got %s, %q, %q", gotMethod, gotAuth, gotContentType)
+	}
+}

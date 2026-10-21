@@ -126,10 +126,10 @@ Tests, written first and passing against the current code before the refactor (s
 
 After the refactor: `NewDatasource` with malformed `jsonData` returns an error that wraps the settings failure.
 
-- [ ] settings are loaded once per instance; no handler calls `LoadPluginSettings` or builds its own `http.Client`
-- [ ] characterization tests above added before the refactor and still pass after it, apart from the accepted `CheckHealth` wording
-- [ ] factory error test added
-- [ ] commit `refactor: keep one NetXMS client per datasource instance`
+- [x] settings are loaded once per instance; no handler calls `LoadPluginSettings` or builds its own `http.Client`
+- [x] characterization tests above added before the refactor and still pass after it, apart from the accepted `CheckHealth` wording
+- [x] factory error test added
+- [x] commit `refactor: keep one NetXMS client per datasource instance`
 
 ### Task 3: Return JSON reasons for resource request failures
 

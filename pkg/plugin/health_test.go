@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -37,6 +38,36 @@ func TestCheckHealthRequiresServerVersion(t *testing.T) {
 			}
 			if res.Status != tt.wantStatus {
 				t.Errorf("expected status %v, got %v (%s)", tt.wantStatus, res.Status, res.Message)
+			}
+		})
+	}
+}
+
+func TestCheckHealthReportsRequestFailures(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer upstream.Close()
+
+	tests := []struct {
+		name       string
+		serverURL  string
+		wantPrefix string
+	}{
+		{"upstream status", upstream.URL, "Server returned status code: 503 (503 Service Unavailable)"},
+		{"connect failure", closedServerURL(t), "failed to connect to server: "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, settings := newTestDatasource(t, tt.serverURL)
+			res, err := ds.CheckHealth(context.Background(), &backend.CheckHealthRequest{
+				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Status != backend.HealthStatusError || !strings.HasPrefix(res.Message, tt.wantPrefix) {
+				t.Errorf("expected error starting with %q, got %v %q", tt.wantPrefix, res.Status, res.Message)
 			}
 		})
 	}

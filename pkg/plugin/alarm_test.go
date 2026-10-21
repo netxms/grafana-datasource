@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -144,5 +145,28 @@ func TestAlarmsAcceptUnsignedIds(t *testing.T) {
 	}
 	if got, _ := resp.Frames[0].Fields[0].ConcreteAt(0); got != uint32(4000000000) {
 		t.Errorf("expected alarm id 4000000000, got %v", got)
+	}
+}
+
+func TestAlarmQueryWithoutRootObjectSendsEmptyObject(t *testing.T) {
+	var gotBody, gotContentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		gotContentType = r.Header.Get("Content-Type")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	resp := runSingleQuery(t, ds, settings, "alarms", map[string]any{})
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+	if gotBody != "{}" {
+		t.Errorf("expected body {}, got %q", gotBody)
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", gotContentType)
 	}
 }

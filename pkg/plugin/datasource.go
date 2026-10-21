@@ -39,13 +39,88 @@ var (
 // NetXMSDatasource is datasource which can respond to data queries, reports
 // its health.
 type NetXMSDatasource struct {
+	client          *netxmsClient
 	queryHandler    backend.QueryDataHandler
 	resourceHandler backend.CallResourceHandler
 }
 
+type netxmsClient struct {
+	baseURL string
+	apiKey  string
+	http    *http.Client
+}
+
+// upstreamError is a non-200 response from the NetXMS server.
+type upstreamError struct {
+	status int
+	body   []byte
+}
+
+func (e *upstreamError) Error() string {
+	return httpStatusErrorMessage(e.status)
+}
+
+// do sends a request to the NetXMS server and returns the body of a 200 response. A nil body
+// sends no body and no Content-Type; anything else is sent as JSON.
+func (c *netxmsClient) do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	var reqBody io.Reader = http.NoBody
+	if body != nil {
+		bodyBytes, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		reqBody = bytes.NewReader(bodyBytes)
+	}
+
+	request, err := http.NewRequestWithContext(ctx, method, joinURL(c.baseURL, path), reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	request.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	result, err := c.http.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to server: %w", err)
+	}
+	defer result.Body.Close()
+
+	respBody, err := io.ReadAll(result.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if result.StatusCode != http.StatusOK {
+		return nil, &upstreamError{status: result.StatusCode, body: respBody}
+	}
+	return respBody, nil
+}
+
+func queryError(err error) backend.DataResponse {
+	upstream, ok := errors.AsType[*upstreamError](err)
+	if !ok {
+		return backend.ErrDataResponse(backend.StatusBadRequest, err.Error())
+	}
+	if upstream.status == http.StatusUnauthorized {
+		return backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
+	}
+	return parseErrorResponse(upstream.status, upstream.body)
+}
+
 // NewDatasource creates a new NetXMS datasource instance
-func NewDatasource(_ context.Context, _ backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	ds := &NetXMSDatasource{}
+func NewDatasource(_ context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+	config, err := models.LoadPluginSettings(settings)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load plugin settings: %w", err)
+	}
+	ds := &NetXMSDatasource{
+		client: &netxmsClient{
+			baseURL: config.ServerAddress,
+			apiKey:  config.Secrets.ApiKey,
+			http:    &http.Client{Timeout: 10 * time.Second},
+		},
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/alarmObjects", ds.handleAlarmObjects)
 	mux.HandleFunc("/dciObjects", ds.handleDciObjects)
@@ -143,67 +218,28 @@ func (d *NetXMSDatasource) handleAlarmQuery(ctx context.Context, req *backend.Qu
 			continue
 		}
 
-		res := d.query(ctx, req.PluginContext, qm.SourceObjectId)
+		res := d.query(ctx, qm.SourceObjectId)
 		response.Responses[q.RefID] = res
 	}
 
 	return response, nil
 }
 
-func (d *NetXMSDatasource) query(ctx context.Context, pCtx backend.PluginContext, rootObjectId string) backend.DataResponse {
+func (d *NetXMSDatasource) query(ctx context.Context, rootObjectId string) backend.DataResponse {
 	var response backend.DataResponse
-	config, err := models.LoadPluginSettings(*pCtx.DataSourceInstanceSettings)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
-	}
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	statusURL := joinURL(config.ServerAddress, "v1/grafana/infinity/alarms")
-
-	var bodyBytes []byte
+	reqBody := map[string]any{}
 	if rootObjectId != "" {
 		rootObjectIdNum, parseErr := strconv.ParseInt(rootObjectId, 10, 64)
 		if parseErr != nil {
 			return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("invalid rootObjectId: %v", parseErr.Error()))
 		}
-		body := map[string]any{
-			"rootObjectId": rootObjectIdNum,
-		}
-		bodyBytes, err = json.Marshal(body)
-		if err != nil {
-			return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to marshal request body: %v", err.Error()))
-		}
-	} else {
-		bodyBytes = []byte(`{}`)
+		reqBody["rootObjectId"] = rootObjectIdNum
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, statusURL, bytes.NewBuffer(bodyBytes))
+	body, err := d.client.do(ctx, http.MethodPost, "v1/grafana/infinity/alarms", reqBody)
 	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err.Error()))
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
-
-	result, err := client.Do(request)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err.Error()))
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err.Error()))
-	}
-
-	if result.StatusCode == http.StatusUnauthorized {
-		return backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
-	}
-
-	if result.StatusCode != http.StatusOK {
-		return parseErrorResponse(result.StatusCode, body)
+		return queryError(err)
 	}
 
 	var alarms []alarmResponse
@@ -305,60 +341,29 @@ func isVersionGreater(actualVersion, requireVersion string) bool {
 // The main use case for these health checks is the test button on the
 // datasource configuration page which allows users to verify that
 // a datasource is working as expected.
-func (d *NetXMSDatasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+func (d *NetXMSDatasource) CheckHealth(ctx context.Context, _ *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
 	res := &backend.CheckHealthResult{}
-	config, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
 
-	if err != nil {
-		res.Status = backend.HealthStatusError
-		res.Message = "Unable to load settings"
-		return res, nil
-	}
-
-	if config.Secrets.ApiKey == "" {
+	if d.client.apiKey == "" {
 		res.Status = backend.HealthStatusError
 		res.Message = "API key is missing"
 		return res, nil
 	}
 
-	if config.ServerAddress == "" {
+	if d.client.baseURL == "" {
 		res.Status = backend.HealthStatusError
 		res.Message = "Server address is missing"
 		return res, nil
 	}
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	statusURL := joinURL(config.ServerAddress, "v1/server-info")
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, http.NoBody)
+	body, err := d.client.do(ctx, http.MethodGet, "v1/server-info", nil)
 	if err != nil {
 		res.Status = backend.HealthStatusError
-		res.Message = fmt.Sprintf("Failed to create request: %v", err)
-		return res, nil
-	}
-
-	request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
-
-	response, err := client.Do(request)
-	if err != nil {
-		res.Status = backend.HealthStatusError
-		res.Message = fmt.Sprintf("Failed to connect to server: %v", err)
-		return res, nil
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		res.Status = backend.HealthStatusError
-		res.Message = fmt.Sprintf("failed to read response: %d (%s)", response.StatusCode, response.Status)
-		return res, nil
-	}
-
-	if response.StatusCode != http.StatusOK {
-		res.Status = backend.HealthStatusError
-		res.Message = fmt.Sprintf("Server returned status code: %d (%s)", response.StatusCode, response.Status)
+		if upstream, ok := errors.AsType[*upstreamError](err); ok {
+			res.Message = fmt.Sprintf("Server returned status code: %d (%d %s)", upstream.status, upstream.status, http.StatusText(upstream.status))
+		} else {
+			res.Message = err.Error()
+		}
 		return res, nil
 	}
 
@@ -397,41 +402,13 @@ func (ds *NetXMSDatasource) CallResource(ctx context.Context, req *backend.CallR
 
 // This method handles all request to get lists of items in format name : id
 func (ds *NetXMSDatasource) handleQuery(url string, rw http.ResponseWriter, req *http.Request) {
-	pCtx := backend.PluginConfigFromContext(req.Context())
-	config, err := models.LoadPluginSettings(*pCtx.DataSourceInstanceSettings)
-	if err != nil {
-		http.Error(rw, "failed to load plugin settings", http.StatusInternalServerError)
+	body, err := ds.client.do(req.Context(), http.MethodGet, url, nil)
+	if upstream, ok := errors.AsType[*upstreamError](err); ok {
+		writeResourceError(rw, upstream.status, upstream.body)
 		return
 	}
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	statusURL := joinURL(config.ServerAddress, url)
-	request, err := http.NewRequestWithContext(req.Context(), http.MethodGet, statusURL, http.NoBody)
 	if err != nil {
-		http.Error(rw, "failed to create request", http.StatusInternalServerError)
-		return
-	}
-
-	request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
-
-	result, err := client.Do(request)
-	if err != nil {
-		http.Error(rw, "failed to connect to server", http.StatusInternalServerError)
-		return
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		http.Error(rw, "failed to read response", http.StatusInternalServerError)
-		return
-	}
-
-	if result.StatusCode != http.StatusOK {
-		writeResourceError(rw, result.StatusCode, body)
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -539,16 +516,6 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 			continue
 		}
 
-		config, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
-			continue
-		}
-
-		client := &http.Client{
-			Timeout: 10 * time.Second,
-		}
-
 		timeFrom := q.TimeRange.From.Unix()
 		timeTo := q.TimeRange.To.Unix()
 
@@ -557,36 +524,10 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		if q.MaxDataPoints > 0 {
 			path += fmt.Sprintf("&maxDataPoints=%d", q.MaxDataPoints)
 		}
-		url := joinURL(config.ServerAddress, path)
 
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+		body, err := ds.client.do(ctx, http.MethodGet, path, nil)
 		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
-			continue
-		}
-
-		request.Header.Add("Authorization", "Bearer "+config.Secrets.ApiKey)
-
-		result, err := client.Do(request)
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
-			continue
-		}
-
-		body, err := io.ReadAll(result.Body)
-		result.Body.Close()
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
-			continue
-		}
-
-		if result.StatusCode == http.StatusUnauthorized {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
-			continue
-		}
-
-		if result.StatusCode != http.StatusOK {
-			response.Responses[q.RefID] = parseErrorResponse(result.StatusCode, body)
+			response.Responses[q.RefID] = queryError(err)
 			continue
 		}
 
@@ -780,59 +721,15 @@ func (d *NetXMSDatasource) handleTableQuery(ctx context.Context, req *backend.Qu
 			continue
 		}
 
-		pluginConfig, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
-			continue
-		}
-
-		client := &http.Client{
-			Timeout: 10 * time.Second,
-		}
-
-		url := joinURL(pluginConfig.ServerAddress, queryConfig.url)
-
 		reqBody, err := queryConfig.formatBody(qm)
 		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to format request body: %v", err))
 			continue
 		}
 
-		bodyBytes, err := json.Marshal(reqBody)
+		body, err := d.client.do(ctx, http.MethodPost, queryConfig.url, reqBody)
 		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to marshal request body: %v", err))
-			continue
-		}
-
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(bodyBytes))
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
-			continue
-		}
-
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Add("Authorization", "Bearer "+pluginConfig.Secrets.ApiKey)
-
-		result, err := client.Do(request)
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
-			continue
-		}
-
-		body, err := io.ReadAll(result.Body)
-		result.Body.Close()
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
-			continue
-		}
-
-		if result.StatusCode == http.StatusUnauthorized {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
-			continue
-		}
-
-		if result.StatusCode != http.StatusOK {
-			response.Responses[q.RefID] = parseErrorResponse(result.StatusCode, body)
+			response.Responses[q.RefID] = queryError(err)
 			continue
 		}
 
@@ -965,18 +862,6 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 			continue
 		}
 
-		pluginConfig, err := models.LoadPluginSettings(*req.PluginContext.DataSourceInstanceSettings)
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to load plugin settings: %v", err))
-			continue
-		}
-
-		client := &http.Client{
-			Timeout: 10 * time.Second,
-		}
-
-		url := joinURL(pluginConfig.ServerAddress, "/v1/grafana/objects-status")
-
 		reqBody := map[string]any{}
 		if qm.SourceObjectId != "" {
 			rootObjectIdNum, parseErr := strconv.ParseInt(qm.SourceObjectId, 10, 64)
@@ -987,41 +872,9 @@ func (d *NetXMSDatasource) handleObjectStatusQuery(ctx context.Context, req *bac
 			reqBody["rootObjectId"] = rootObjectIdNum
 		}
 
-		bodyBytes, err := json.Marshal(reqBody)
+		body, err := d.client.do(ctx, http.MethodPost, "/v1/grafana/objects-status", reqBody)
 		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to marshal request body: %v", err))
-			continue
-		}
-
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(bodyBytes))
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to create request: %v", err))
-			continue
-		}
-
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Add("Authorization", "Bearer "+pluginConfig.Secrets.ApiKey)
-
-		result, err := client.Do(request)
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to connect to server: %v", err))
-			continue
-		}
-
-		body, err := io.ReadAll(result.Body)
-		result.Body.Close()
-		if err != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to read response: %v", err))
-			continue
-		}
-
-		if result.StatusCode == http.StatusUnauthorized {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusUnauthorized, "Unauthorized: Invalid API key")
-			continue
-		}
-
-		if result.StatusCode != http.StatusOK {
-			response.Responses[q.RefID] = parseErrorResponse(result.StatusCode, body)
+			response.Responses[q.RefID] = queryError(err)
 			continue
 		}
 

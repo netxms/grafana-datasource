@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -111,5 +112,67 @@ func TestQueryErrorsFromServerAreReported(t *testing.T) {
 	resp = runSingleQuery(t, ds, settings, "summaryTables", map[string]any{"sourceObjectId": "1"})
 	if resp.Error == nil || !strings.Contains(resp.Error.Error(), "summaryTableId is required") {
 		t.Errorf("expected validation error, got %v", resp.Error)
+	}
+}
+
+func closedServerURL(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.NotFoundHandler())
+	server.Close()
+	return server.URL
+}
+
+var queryTypeModels = []struct {
+	queryType string
+	model     map[string]any
+}{
+	{"alarms", map[string]any{}},
+	{"dciValues", map[string]any{"sourceObjectId": "1", "dciId": "2"}},
+	{"summaryTables", map[string]any{"summaryTableId": "3"}},
+	{"objectQueries", map[string]any{"objectQueryId": "4"}},
+	{"objectStatus", map[string]any{}},
+}
+
+func TestQueryUpstreamUnauthorizedIsReported(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"reason":"Access denied"}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL)
+	for _, tt := range queryTypeModels {
+		t.Run(tt.queryType, func(t *testing.T) {
+			resp := runSingleQuery(t, ds, settings, tt.queryType, tt.model)
+			if resp.Status != backend.StatusUnauthorized {
+				t.Errorf("expected status %v, got %v", backend.StatusUnauthorized, resp.Status)
+			}
+			if resp.Error == nil || resp.Error.Error() != "Unauthorized: Invalid API key" {
+				t.Errorf("expected invalid API key error, got %v", resp.Error)
+			}
+		})
+	}
+}
+
+func TestQueryConnectFailureIsReported(t *testing.T) {
+	ds, settings := newTestDatasource(t, closedServerURL(t))
+	for _, tt := range queryTypeModels {
+		t.Run(tt.queryType, func(t *testing.T) {
+			resp := runSingleQuery(t, ds, settings, tt.queryType, tt.model)
+			if resp.Status != backend.StatusBadRequest {
+				t.Errorf("expected status %v, got %v", backend.StatusBadRequest, resp.Status)
+			}
+			if resp.Error == nil || !strings.HasPrefix(resp.Error.Error(), "failed to connect to server: ") ||
+				!strings.Contains(resp.Error.Error(), "connection refused") {
+				t.Errorf("expected connect error, got %v", resp.Error)
+			}
+		})
+	}
+}
+
+func TestNewDatasourceRejectsMalformedSettings(t *testing.T) {
+	_, err := NewDatasource(context.Background(), backend.DataSourceInstanceSettings{JSONData: []byte(`{`)})
+	if _, ok := errors.AsType[*json.SyntaxError](err); !ok || !strings.HasPrefix(err.Error(), "failed to load plugin settings: ") {
+		t.Errorf("expected wrapped settings error, got %v", err)
 	}
 }
