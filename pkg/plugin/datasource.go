@@ -408,7 +408,8 @@ func (ds *NetXMSDatasource) handleQuery(url string, rw http.ResponseWriter, req 
 		return
 	}
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		log.DefaultLogger.Error("NetXMS request failed", "path", url, "error", err)
+		writeJSONError(rw, http.StatusBadGateway, err.Error())
 		return
 	}
 
@@ -453,7 +454,7 @@ func (ds *NetXMSDatasource) handleQuery(url string, rw http.ResponseWriter, req 
 	// Marshal back to JSON
 	sortedBody, err := json.Marshal(responseData)
 	if err != nil {
-		http.Error(rw, "failed to marshal sorted response", http.StatusInternalServerError)
+		writeJSONError(rw, http.StatusInternalServerError, fmt.Sprintf("failed to marshal sorted response: %v", err))
 		return
 	}
 
@@ -487,11 +488,11 @@ func (ds *NetXMSDatasource) handleObjectQueryObjects(rw http.ResponseWriter, req
 func (ds *NetXMSDatasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
 	objectID := req.URL.Query().Get("objectId")
 	if objectID == "" {
-		http.Error(rw, "missing objectId parameter", http.StatusBadRequest)
+		writeJSONError(rw, http.StatusBadRequest, "missing objectId parameter")
 		return
 	}
 	if _, err := strconv.ParseInt(objectID, 10, 64); err != nil {
-		http.Error(rw, "objectId must be numeric", http.StatusBadRequest)
+		writeJSONError(rw, http.StatusBadRequest, "objectId must be numeric")
 		return
 	}
 	path := fmt.Sprintf("/v1/grafana/objects/%s/dci-list", objectID)
@@ -1003,9 +1004,14 @@ func writeResourceError(rw http.ResponseWriter, statusCode int, body []byte) {
 	} else if statusCode == http.StatusUnauthorized {
 		reason = "Unauthorized: Invalid API key"
 	}
+	writeJSONError(rw, http.StatusBadGateway, reason)
+}
+
+// writeJSONError writes a JSON body with a reason, which the query editor shows for failed resource requests.
+func writeJSONError(rw http.ResponseWriter, status int, reason string) {
 	payload, _ := json.Marshal(map[string]string{"reason": reason})
 	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusBadGateway)
+	rw.WriteHeader(status)
 	_, _ = rw.Write(payload)
 }
 

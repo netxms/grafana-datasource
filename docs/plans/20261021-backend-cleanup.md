@@ -140,10 +140,10 @@ Tests:
 - Both `handleDciList` validation errors return 400 with a JSON `reason`.
 - The existing upstream error forwarding tests are unchanged.
 
-- [ ] no resource path writes a plain-text error body
-- [ ] local failures are logged once with the wrapped error
-- [ ] CHANGELOG `[Unreleased]` / Bug Fixes entry: dropdowns show the actual cause, such as a connection error, instead of "Internal Server Error" (#28)
-- [ ] commit `fix: return JSON reasons for resource request failures`
+- [x] no resource path writes a plain-text error body
+- [x] local failures are logged once with the wrapped error
+- [x] CHANGELOG `[Unreleased]` / Bug Fixes entry: dropdowns show the actual cause, such as a connection error, instead of "Internal Server Error" (#28)
+- [x] commit `fix: return JSON reasons for resource request failures`
 
 ### Task 4: Build severity colours from one table
 

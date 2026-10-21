@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -128,5 +129,61 @@ func TestResourceRequestIsAuthorizedGetWithoutContentType(t *testing.T) {
 	}
 	if gotMethod != http.MethodGet || gotAuth != "Bearer test-key" || len(gotContentType) != 0 {
 		t.Errorf("expected authorized GET without Content-Type, got %s, %q, %q", gotMethod, gotAuth, gotContentType)
+	}
+}
+
+func callResource(t *testing.T, ds *NetXMSDatasource, settings backend.DataSourceInstanceSettings, path, url string) (int, string) {
+	t.Helper()
+	var status int
+	var body []byte
+	sender := backend.CallResourceResponseSenderFunc(func(res *backend.CallResourceResponse) error {
+		status = res.Status
+		body = append(body, res.Body...)
+		return nil
+	})
+	if err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
+		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
+		Path:          path,
+		URL:           url,
+		Method:        http.MethodGet,
+	}, sender); err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("invalid JSON %q: %v", body, err)
+	}
+	return status, parsed.Reason
+}
+
+func TestResourceConnectFailureIsReported(t *testing.T) {
+	ds, settings := newTestDatasource(t, closedServerURL(t))
+	status, reason := callResource(t, ds, settings, "alarmObjects", "alarmObjects")
+	if status != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", status)
+	}
+	if !strings.HasPrefix(reason, "failed to connect to server: ") || !strings.Contains(reason, "connection refused") {
+		t.Errorf("expected connect error, got %q", reason)
+	}
+}
+
+func TestDciListValidatesObjectId(t *testing.T) {
+	tests := []struct {
+		url        string
+		wantReason string
+	}{
+		{"dcis", "missing objectId parameter"},
+		{"dcis?objectId=abc", "objectId must be numeric"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			ds, settings := newTestDatasource(t, closedServerURL(t))
+			status, reason := callResource(t, ds, settings, "dcis", tt.url)
+			if status != http.StatusBadRequest || reason != tt.wantReason {
+				t.Errorf("expected 400 %q, got %d %q", tt.wantReason, status, reason)
+			}
+		})
 	}
 }

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 - NetXMS errors without a reason now show the HTTP status code and description in queries and dropdown requests (#27)
+- Dropdowns show the actual cause of a failed request, such as a connection error, instead of "Internal Server Error" (#28)
 - Typing in the object query's Query parameters field no longer runs the query on every keystroke. The query runs once when the field loses focus, if it is valid (#27)
 - Numeric DCI history passes the query's max data points to NetXMS, which averages raw samples into roughly that many buckets (timestamps are bucket starts). When NetXMS reads raw samples, a long range of a numeric DCI no longer loses its beginning to the server's 200000-row limit, and the browser receives about one point per pixel instead of every sample. When NetXMS aggregation is enabled the server may answer from hourly or daily aggregates instead, which can be coarser than the requested resolution (#24)
 - DCI history served from NetXMS hourly/daily aggregates (when `DataCollection.Aggregation.Enabled` is on) is shown, instead of an empty string series. Hourly/daily series carry their step as the field interval, so missing hours or days show as gaps (#24)
