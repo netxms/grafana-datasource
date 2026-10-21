@@ -90,15 +90,22 @@ type alarmResponse struct {
 type dciValueResponse struct {
 	Description string `json:"description"`
 	UnitName    string `json:"unitName"`
+	TierServed  string `json:"tierServed"`
+	Aggregated  bool   `json:"aggregated"`
 	Values      []struct {
-		Timestamp string `json:"timestamp"`
-		Value     string `json:"value"`
+		Timestamp string   `json:"timestamp"`
+		Value     string   `json:"value"`
+		Avg       *float64 `json:"avg"`
 	} `json:"values"`
 }
+
+// maxDciDataRecords mirrors the server's MAX_DCI_DATA_RECORDS row limit for history requests.
+const maxDciDataRecords = 200000
 
 type dciPoint struct {
 	ts    time.Time
 	value string
+	avg   float64
 }
 
 type requiredField struct {
@@ -367,7 +374,7 @@ func (d *NetXMSDatasource) CheckHealth(ctx context.Context, req *backend.CheckHe
 		res.Message = "Server response missing version field"
 		return res, nil
 	}
-	requiredVersion := "5.2.4"
+	requiredVersion := "7.0.0"
 	if !isVersionGreater(actualVersion, requiredVersion) {
 		log.DefaultLogger.Warn("Server version is below required minimum", "actual", actualVersion, "required", requiredVersion)
 		res.Status = backend.HealthStatusError
@@ -545,8 +552,12 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		timeFrom := q.TimeRange.From.Unix()
 		timeTo := q.TimeRange.To.Unix()
 
-		url := joinURL(config.ServerAddress, fmt.Sprintf("v1/objects/%s/data-collection/%s/history?timeFrom=%d&timeTo=%d",
-			qm.SourceObjectId, qm.DciId, timeFrom, timeTo))
+		path := fmt.Sprintf("v1/objects/%s/data-collection/%s/history?timeFrom=%d&timeTo=%d",
+			qm.SourceObjectId, qm.DciId, timeFrom, timeTo)
+		if q.MaxDataPoints > 0 {
+			path += fmt.Sprintf("&maxDataPoints=%d", q.MaxDataPoints)
+		}
+		url := joinURL(config.ServerAddress, path)
 
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 		if err != nil {
@@ -580,67 +591,15 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		}
 
 		var dciData dciValueResponse
-		if err := json.Unmarshal(body, &dciData); err != nil {
+		if err = json.Unmarshal(body, &dciData); err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("failed to parse response: %v", err))
 			continue
 		}
 
-		frame := data.NewFrame(dciData.Description)
-
-		points := make([]dciPoint, 0, len(dciData.Values))
-		var parseError error
-
-		for _, v := range dciData.Values {
-			// The server emits null for a zero timestamp; skip such points instead of failing the series.
-			if v.Timestamp == "" {
-				continue
-			}
-			t, err := time.Parse(time.RFC3339, v.Timestamp)
-			if err != nil {
-				parseError = fmt.Errorf("failed to parse timestamp %q: %w", v.Timestamp, err)
-				break
-			}
-			points = append(points, dciPoint{ts: t, value: v.Value})
-		}
-
-		if parseError != nil {
-			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, parseError.Error())
+		frame, err := dciFrame(&dciData)
+		if err != nil {
+			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, err.Error())
 			continue
-		}
-
-		slices.SortStableFunc(points, func(a, b dciPoint) int { return a.ts.Compare(b.ts) })
-
-		times := make([]time.Time, 0, len(points))
-		stringValues := make([]string, 0, len(points))
-		floatValues := make([]float64, 0, len(points))
-		isNumeric := true
-
-		for _, p := range points {
-			times = append(times, p.ts)
-			stringValues = append(stringValues, p.value)
-
-			if isNumeric {
-				val, err := strconv.ParseFloat(p.value, 64)
-				if err != nil {
-					isNumeric = false
-				} else {
-					floatValues = append(floatValues, val)
-				}
-			}
-		}
-
-		if isNumeric {
-			// All values are numeric, use float64 field
-			frame.Fields = append(frame.Fields,
-				data.NewField("time", nil, times),
-				data.NewField("value", map[string]string{"unit": dciData.UnitName}, floatValues),
-			)
-		} else {
-			// Some values are not numeric, use string field
-			frame.Fields = append(frame.Fields,
-				data.NewField("time", nil, times),
-				data.NewField("value", nil, stringValues),
-			)
 		}
 
 		response.Responses[q.RefID] = backend.DataResponse{
@@ -648,6 +607,91 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		}
 	}
 	return response, nil
+}
+
+// dciFrame converts a history response into a time/value frame. Aggregated responses
+// (on-the-fly buckets or hourly/daily tiers) carry avg instead of value.
+func dciFrame(dciData *dciValueResponse) (*data.Frame, error) {
+	frame := data.NewFrame(dciData.Description)
+
+	points := make([]dciPoint, 0, len(dciData.Values))
+	for _, v := range dciData.Values {
+		// The server emits null for a zero timestamp; skip such points instead of failing the series.
+		if v.Timestamp == "" {
+			continue
+		}
+		if dciData.Aggregated && v.Avg == nil {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, v.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse timestamp %q: %w", v.Timestamp, err)
+		}
+		p := dciPoint{ts: t, value: v.Value}
+		if v.Avg != nil {
+			p.avg = *v.Avg
+		}
+		points = append(points, p)
+	}
+
+	slices.SortStableFunc(points, func(a, b dciPoint) int { return a.ts.Compare(b.ts) })
+
+	times := make([]time.Time, 0, len(points))
+	stringValues := make([]string, 0, len(points))
+	floatValues := make([]float64, 0, len(points))
+	isNumeric := true
+
+	for _, p := range points {
+		times = append(times, p.ts)
+		if dciData.Aggregated {
+			floatValues = append(floatValues, p.avg)
+			continue
+		}
+		stringValues = append(stringValues, p.value)
+
+		if isNumeric {
+			val, err := strconv.ParseFloat(p.value, 64)
+			if err != nil {
+				isNumeric = false
+			} else {
+				floatValues = append(floatValues, val)
+			}
+		}
+	}
+
+	timeField := data.NewField("time", nil, times)
+	if interval := dciTierInterval(dciData.TierServed); interval > 0 {
+		timeField.Config = &data.FieldConfig{Interval: float64(interval.Milliseconds())}
+	}
+
+	if isNumeric {
+		frame.Fields = append(frame.Fields, timeField, data.NewField("value", map[string]string{"unit": dciData.UnitName}, floatValues))
+	} else {
+		frame.Fields = append(frame.Fields, timeField, data.NewField("value", nil, stringValues))
+	}
+
+	// Bucketed raw reads have no row limit; raw rows and tier rows are cut to the newest maxDciDataRecords.
+	if len(dciData.Values) >= maxDciDataRecords && (!dciData.Aggregated || dciData.TierServed != "raw") {
+		frame.AppendNotices(data.Notice{
+			Severity: data.NoticeSeverityWarning,
+			Text:     fmt.Sprintf("The server returned its %d-row limit; earlier values may be missing. Narrow the time range.", maxDciDataRecords),
+		})
+	}
+
+	return frame, nil
+}
+
+// dciTierInterval returns the step between hourly/daily aggregate rows. Raw buckets get none: they can be
+// narrower than the polling interval, and Grafana would insert nulls between every pair of samples.
+func dciTierInterval(tierServed string) time.Duration {
+	switch tierServed {
+	case "hourly":
+		return time.Hour
+	case "daily":
+		return 24 * time.Hour
+	default:
+		return 0
+	}
 }
 
 func decodeJSONKeyOrder(rawData []byte) ([]string, error) {

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-NetXMS datasource plugin for Grafana: Go backend (`pkg/`) + TypeScript/React frontend (`src/`), querying NetXMS through its WebAPI. Requires NetXMS 5.2.4+ with the webAPI module.
+NetXMS datasource plugin for Grafana: Go backend (`pkg/`) + TypeScript/React frontend (`src/`), querying NetXMS through its WebAPI (server needs the webAPI module).
 
 ## Commands
 - `yarn test` is watch mode and never exits; use `yarn test:ci`. Backend tests: `mage coverage`.

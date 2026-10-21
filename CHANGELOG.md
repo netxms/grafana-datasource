@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Breaking Changes
+- Require NetXMS 7.0.0 or later (was 5.2.4). DCI history relies on server-side aggregation of the history endpoint (#24)
 - Require Grafana 12.4.0 or later (was 10.4.0), the oldest Grafana line still [supported upstream](https://grafana.com/docs/grafana/latest/upgrade-guide/when-to-upgrade/). The query type selector uses `Combobox`, which is unavailable before Grafana 11.5; on Grafana 10.4–11.4 the query type selector did not render (#26)
 
 ### Bug Fixes
+- Numeric DCI history passes the query's max data points to NetXMS, which averages raw samples into roughly that many buckets (timestamps are bucket starts). When NetXMS reads raw samples, a long range of a numeric DCI no longer loses its beginning to the server's 200000-row limit, and the browser receives about one point per pixel instead of every sample. When NetXMS aggregation is enabled the server may answer from hourly or daily aggregates instead, which can be coarser than the requested resolution (#24)
+- DCI history served from NetXMS hourly/daily aggregates (when `DataCollection.Aggregation.Enabled` is on) is shown, instead of an empty string series. Hourly/daily series carry their step as the field interval, so missing hours or days show as gaps (#24)
+- A warning notice is shown when NetXMS returns its 200000-row limit for a DCI series, which can still happen for string DCIs, queries without max data points, and very long hourly/daily ranges (#24)
 - Fix the e2e matrix, which did not pass the Grafana version to the container and ran the Compose default instead of resolved versions. Stable-version jobs now check the running version; the earlier 2.0.1 claim of cross-version e2e coverage was incorrect
 - DCI history is returned oldest-first, so Stat / Gauge / Bar gauge `Last` and `First` reducers show the correct sample (previously reversed) (#23)
 - Object query columns are taken from all rows, so a field set only for some objects is no longer dropped when the first object lacks it (#25)

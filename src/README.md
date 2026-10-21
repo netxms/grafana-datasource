@@ -19,7 +19,7 @@ The **NetXMS Data Source Plugin** enables Grafana to visualize data from NetXMS,
 ## Requirements
 
 - Grafana 12.4.0 or later
-- NetXMS server with WebAPI enabled
+- NetXMS server 7.0.0 or later with WebAPI enabled
 
 ## Getting Started
 
