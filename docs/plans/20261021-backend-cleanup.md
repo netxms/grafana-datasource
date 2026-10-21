@@ -178,9 +178,9 @@ Tests: a `versionAtLeast` table covering:
 
 The existing `CheckHealth` version tests stay.
 
-- [ ] `isVersionGreater` is gone; health check uses `versionAtLeast`
-- [ ] table test added
-- [ ] commit `fix: compare server versions by numeric parts`
+- [x] `isVersionGreater` is gone; health check uses `versionAtLeast`
+- [x] table test added
+- [x] commit `fix: compare server versions by numeric parts`
 
 ### Task 7: Remove scaffold leftovers
 

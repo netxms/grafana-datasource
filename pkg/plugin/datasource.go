@@ -306,18 +306,26 @@ func (d *NetXMSDatasource) query(ctx context.Context, rootObjectId string) backe
 	return response
 }
 
-// Compare server version
-func isVersionGreater(actualVersion, requireVersion string) bool {
+// versionAtLeast compares numeric version parts, treating missing parts as zero and ignoring suffixes.
+func versionAtLeast(actualVersion, requireVersion string) bool {
+	leadingNumber := func(part string) int {
+		end := 0
+		for end < len(part) && part[end] >= '0' && part[end] <= '9' {
+			end++
+		}
+		number, _ := strconv.Atoi(part[:end])
+		return number
+	}
 	actualVersionParts := strings.Split(actualVersion, ".")
 	requiredVersionParts := strings.Split(requireVersion, ".")
 	maxLen := max(len(actualVersionParts), len(requiredVersionParts))
 	for i := range maxLen {
 		var actualVersionNum, requiredVersionNum int
 		if i < len(actualVersionParts) {
-			actualVersionNum, _ = strconv.Atoi(actualVersionParts[i])
+			actualVersionNum = leadingNumber(actualVersionParts[i])
 		}
 		if i < len(requiredVersionParts) {
-			requiredVersionNum, _ = strconv.Atoi(requiredVersionParts[i])
+			requiredVersionNum = leadingNumber(requiredVersionParts[i])
 		}
 		if actualVersionNum > requiredVersionNum {
 			return true
@@ -372,7 +380,7 @@ func (d *NetXMSDatasource) CheckHealth(ctx context.Context, _ *backend.CheckHeal
 		return res, nil
 	}
 	requiredVersion := "7.0.0"
-	if !isVersionGreater(actualVersion, requiredVersion) {
+	if !versionAtLeast(actualVersion, requiredVersion) {
 		log.DefaultLogger.Warn("Server version is below required minimum", "actual", actualVersion, "required", requiredVersion)
 		res.Status = backend.HealthStatusError
 		res.Message = fmt.Sprintf("Server version (current: %s) should be equal or greater than %s", actualVersion, requiredVersion)

@@ -10,6 +10,35 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 )
 
+func TestVersionAtLeast(t *testing.T) {
+	tests := []struct {
+		actual   string
+		required string
+		want     bool
+	}{
+		{"7.0.0-rc2", "7.0.0", true},
+		{"7.0.0-SNAPSHOT", "7.0.0", true},
+		{"7.0.4-rc1", "7.0.4", true},
+		{"7.0.4-rc1", "7.0.5", false},
+		{"7.0.0.3", "7.0.0", true},
+		{"7.0.0.10", "7.0.0.3", true},
+		{"7.0.0.3", "7.0.0.10", false},
+		{"7.0", "7.0.0", true},
+		{"7.0.0", "7.0", true},
+		{"6.2.1-rc1", "7.0.0", false},
+		{"SNAPSHOT", "7.0.0", false},
+		{"7.x.4", "7.0.4", true},
+		{"8.0.0", "7.0.0", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.actual+" >= "+tt.required, func(t *testing.T) {
+			if got := versionAtLeast(tt.actual, tt.required); got != tt.want {
+				t.Errorf("versionAtLeast(%q, %q) = %v, want %v", tt.actual, tt.required, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckHealthRequiresServerVersion(t *testing.T) {
 	tests := []struct {
 		version    string
