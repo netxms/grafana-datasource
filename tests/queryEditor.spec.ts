@@ -1,36 +1,9 @@
 import { test, expect } from '@grafana/plugin-e2e';
-/*
-test('smoke: should render query editor', async ({ panelEditPage, readProvisionedDataSource }) => {
-  const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
-  await panelEditPage.datasource.set(ds.name);
-  await expect(panelEditPage.getQueryEditorRow('A').getByRole('textbox', { name: 'Query Text' })).toBeVisible();
-});
 
-test('should trigger new query when Constant field is changed', async ({
-  panelEditPage,
-  readProvisionedDataSource,
-}) => {
-  const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
-  await panelEditPage.datasource.set(ds.name);
-  await panelEditPage.getQueryEditorRow('A').getByRole('textbox', { name: 'Query Text' }).fill('test query');
-  const queryReq = panelEditPage.waitForQueryDataRequest();
-  await panelEditPage.getQueryEditorRow('A').getByRole('spinbutton').fill('10');
-  await expect(await queryReq).toBeTruthy();
-});
-
-test('data query should return values 10 and 20', async ({ panelEditPage, readProvisionedDataSource }) => {
-  const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
-  await panelEditPage.datasource.set(ds.name);
-  await panelEditPage.getQueryEditorRow('A').getByRole('textbox', { name: 'Query Text' }).fill('test query');
-  await panelEditPage.setVisualization('Table');
-  await expect(panelEditPage.refreshPanel()).toBeOK();
-  await expect(panelEditPage.panel.data).toContainText(['10', '20']);
-});
-*/
 test('testing select component', async ({ readProvisionedDataSource, page, panelEditPage }) => {
   const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
   await panelEditPage.datasource.set(ds.name);
-  
+
   await panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: 'Query Type' }).click();
   await expect(page.getByRole('option')).toHaveText([
     'Alarms',
@@ -40,31 +13,47 @@ test('testing select component', async ({ readProvisionedDataSource, page, panel
     'Object Status',
   ]);
   await page.getByRole('option', { name: 'Alarms' }).click();
-  await expect(panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: "Root object" })).toBeVisible();
+  await expect(panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: 'Root object' })).toBeVisible();
 });
 
-test('smoke: chek query type filed exists', async ({ panelEditPage, readProvisionedDataSource }) => {
+test('smoke: check query type field exists', async ({ panelEditPage, readProvisionedDataSource }) => {
   const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
   await panelEditPage.datasource.set(ds.name);
-  
+
   await expect(panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: 'Query Type' })).toBeVisible();
 });
 
-
-test('chek alarms returned', async ({ page, panelEditPage, readProvisionedDataSource }) => {
+test('check alarms returned', async ({ page, panelEditPage, readProvisionedDataSource }) => {
   const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
   await panelEditPage.datasource.set(ds.name);
-  
+
   await panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: 'Query Type' }).click();
   await page.getByRole('option', { name: 'Alarms' }).click();
 
-  await expect(panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: "Root object" })).toBeVisible();
+  await expect(panelEditPage.getQueryEditorRow('A').getByRole('combobox', { name: 'Root object' })).toBeVisible();
 
-  /* TODO: fix test
-  const queryDataSpy = panelEditPage.waitForQueryDataRequest((request) =>
-    (request.postData() ?? '').includes(`alarms`)
+  const response = await panelEditPage.refreshPanel();
+  await expect(response).toBeOK();
+  const body = await response.json();
+  expect(body.results.A.error).toBeUndefined();
+  expect(body.results.A.frames).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        schema: expect.objectContaining({
+          name: 'alarms',
+          fields: [
+            'Id',
+            'Severity',
+            'State',
+            'Source',
+            'Message',
+            'Count',
+            'Ack/Resolve by',
+            'Created',
+            'Last Change',
+          ].map((name) => expect.objectContaining({ name })),
+        }),
+      }),
+    ])
   );
-
-  await panelEditPage.refreshPanel();
-  await expect(queryDataSpy).resolves.toBeTruthy(); */
 });

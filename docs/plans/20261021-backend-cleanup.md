@@ -206,10 +206,15 @@ The alarm test uses the response `refreshPanel()` returns, which already waits f
 - the response is OK, and `results.A` carries no `error`, since `toBeOK()` also accepts 207 multi-status;
 - an `alarms` frame with the expected column names, with no row count.
 
-- [ ] commented-out scaffold tests deleted; "chek" / "filed" test names fixed
-- [ ] alarm test fails when the backend query fails (check once by hand, e.g. with a wrong `NX_API_KEY`)
-- [ ] `yarn e2e` passes against the compose server; `yarn lint` passes
-- [ ] commit `test: assert alarm query result in e2e` with `Closes #28`
+- [x] commented-out scaffold tests deleted; "chek" / "filed" test names fixed
+- [x] alarm test fails when the backend query fails (check once by hand, e.g. with a wrong `NX_API_KEY`)
+- [x] `yarn e2e` passes against the compose server; `yarn lint` passes
+- [x] commit `test: assert alarm query result in e2e` with `Closes #28`
+
+Validation: all seven e2e tests passed against compose Grafana 12.4.0. Temporarily setting
+an invalid API key on the provisioned datasource made the alarm test fail at `toBeOK()`
+(HTTP 400); the fixture key was restored and all seven tests passed again. `yarn lint`
+has no errors and the same five existing Select deprecation warnings.
 
 ## Post-Completion
 
