@@ -4,11 +4,3 @@
 # Only add entries that have NO fixed version available, and always set ignoreUntil:
 # once the date passes the validator fails again and the build turns red, so the
 # exception is re-checked instead of being forgotten.
-
-# braces 3.0.3: stack-exhaustion DoS through deeply nested brace patterns.
-# No fixed release exists (https://github.com/micromatch/braces/issues/73).
-# Dev/build-time only (jest, webpack, sass via micromatch/chokidar), not in the plugin bundle.
-[[IgnoredVulns]]
-id = "GHSA-vfj7-8cjw-p6xm"
-ignoreUntil = 2026-12-31
-reason = "No fixed braces release yet; build-time dependency only"

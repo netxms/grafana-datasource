@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
 - Requests follow Grafana's response size limit setting, and the default request timeout is 30 seconds instead of 10
 - The Query parameters field of object queries uses the standard Grafana text area and fills the editor width
 
+### Security
+- Updated the Grafana plugin SDK and other dependencies
+
 ## [2.1.0] - 2026-10-21
 
 ### Breaking Changes
