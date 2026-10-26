@@ -3,11 +3,13 @@ package plugin
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"sort"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
@@ -55,6 +58,54 @@ func (e *upstreamError) Error() string {
 	return httpStatusErrorMessage(e.status)
 }
 
+// requestError is a request that got no complete response. Its message is fixed because the
+// cause names the server address, which users must not see; the cause is only logged.
+type requestError struct {
+	message string
+	cause   error
+}
+
+func (e *requestError) Error() string {
+	return e.message
+}
+
+func (e *requestError) Unwrap() error {
+	return e.cause
+}
+
+func newRequestError(path string, err error) *requestError {
+	if errors.Is(err, context.Canceled) {
+		log.DefaultLogger.Debug("NetXMS request canceled", "path", path, "error", err)
+		return &requestError{message: "Request canceled", cause: err}
+	}
+	log.DefaultLogger.Error("NetXMS request failed", "path", path, "error", err)
+	return &requestError{message: requestErrorMessage(err), cause: err}
+}
+
+func requestErrorMessage(err error) string {
+	if errors.Is(err, httpclient.ErrResponseBodyTooLarge) {
+		return "Response from the NetXMS server is too large"
+	}
+	if _, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
+		return "TLS certificate could not be verified"
+	}
+	if isTimeout(err) {
+		return "Request timed out"
+	}
+	return "Unable to connect to the NetXMS server"
+}
+
+// isTimeout checks every error in the chain: errors.As would stop at the first net.Error, and
+// url.Error.Timeout() cannot see a timeout behind the SDK's error source wrapper.
+func isTimeout(err error) bool {
+	for ; err != nil; err = errors.Unwrap(err) {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() { //nolint:errorlint // the chain is walked explicitly
+			return true
+		}
+	}
+	return false
+}
+
 // do sends a request to the NetXMS server and returns the body of a 200 response. A nil body
 // sends no body and no Content-Type; anything else is sent as JSON.
 func (c *netxmsClient) do(ctx context.Context, method, path string, body any) ([]byte, error) {
@@ -69,7 +120,8 @@ func (c *netxmsClient) do(ctx context.Context, method, path string, body any) ([
 
 	request, err := http.NewRequestWithContext(ctx, method, joinURL(c.baseURL, path), reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		log.DefaultLogger.Error("Invalid NetXMS server address", "error", err)
+		return nil, &requestError{message: "Invalid server address", cause: err}
 	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -78,13 +130,13 @@ func (c *netxmsClient) do(ctx context.Context, method, path string, body any) ([
 
 	result, err := c.http.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to server: %w", err)
+		return nil, newRequestError(path, err)
 	}
 	defer result.Body.Close()
 
 	respBody, err := io.ReadAll(result.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, newRequestError(path, err)
 	}
 	if result.StatusCode != http.StatusOK {
 		return nil, &upstreamError{status: result.StatusCode, body: respBody}
@@ -104,16 +156,24 @@ func queryError(err error) backend.DataResponse {
 }
 
 // NewDatasource creates a new NetXMS datasource instance
-func NewDatasource(_ context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	config, err := models.LoadPluginSettings(settings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load plugin settings: %w", err)
+	}
+	httpOptions, err := settings.HTTPClientOptions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load HTTP client options: %w", err)
+	}
+	httpClient, err := httpclient.New(httpOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 	ds := &NetXMSDatasource{
 		client: &netxmsClient{
 			baseURL: config.ServerAddress,
 			apiKey:  config.Secrets.ApiKey,
-			http:    &http.Client{Timeout: 10 * time.Second},
+			http:    httpClient,
 		},
 	}
 	mux := http.NewServeMux()
@@ -396,7 +456,6 @@ func (ds *NetXMSDatasource) handleQuery(url string, rw http.ResponseWriter, req 
 		return
 	}
 	if err != nil {
-		log.DefaultLogger.Error("NetXMS request failed", "path", url, "error", err)
 		writeJSONError(rw, http.StatusBadGateway, err.Error())
 		return
 	}

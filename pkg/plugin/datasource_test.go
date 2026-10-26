@@ -2,14 +2,20 @@ package plugin
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
@@ -17,6 +23,7 @@ import (
 func newTestDatasource(t *testing.T, serverURL string) (*NetXMSDatasource, backend.DataSourceInstanceSettings) {
 	t.Helper()
 	settings := backend.DataSourceInstanceSettings{
+		Type:                    "radensolutions-netxms-datasource",
 		JSONData:                []byte(`{"serverAddress": "` + serverURL + `"}`),
 		DecryptedSecureJSONData: map[string]string{"apiKey": "test-key"},
 	}
@@ -122,6 +129,133 @@ func closedServerURL(t *testing.T) string {
 	return server.URL
 }
 
+const msgConnectFailed = "Unable to connect to the NetXMS server"
+
+func TestRequestFailuresHaveFixedMessages(t *testing.T) {
+	tlsServer := httptest.NewTLSServer(http.NotFoundHandler())
+	defer tlsServer.Close()
+	hangingServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer hangingServer.Close()
+	stalledBodyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer stalledBodyServer.Close()
+	chunkedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		_, _ = w.Write([]byte(strings.Repeat("x", 100)))
+	}))
+	defer chunkedServer.Close()
+
+	withDeadline := func(t *testing.T) context.Context {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		t.Cleanup(cancel)
+		return ctx
+	}
+	canceled := func(t *testing.T) context.Context {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		return ctx
+	}
+	withResponseLimit := func(t *testing.T) context.Context {
+		return httpclient.WithResponseLimit(t.Context(), 10)
+	}
+	background := func(t *testing.T) context.Context {
+		return t.Context()
+	}
+
+	tests := []struct {
+		name        string
+		serverURL   string
+		ctx         func(t *testing.T) context.Context
+		wantMessage string
+		wantCause   func(error) bool
+	}{
+		{"connect failure", closedServerURL(t), background, msgConnectFailed,
+			func(err error) bool { return errors.Is(err, syscall.ECONNREFUSED) }},
+		{"invalid address", "http://bad host", background, "Invalid server address",
+			func(err error) bool { _, ok := errors.AsType[*url.Error](err); return ok }},
+		{"untrusted certificate", tlsServer.URL, background, "TLS certificate could not be verified",
+			func(err error) bool { _, ok := errors.AsType[*tls.CertificateVerificationError](err); return ok }},
+		{"deadline awaiting headers", hangingServer.URL, withDeadline, "Request timed out",
+			func(err error) bool { return errors.Is(err, context.DeadlineExceeded) }},
+		{"deadline reading body", stalledBodyServer.URL, withDeadline, "Request timed out",
+			func(err error) bool { return errors.Is(err, context.DeadlineExceeded) }},
+		{"canceled", hangingServer.URL, canceled, "Request canceled",
+			func(err error) bool { return errors.Is(err, context.Canceled) }},
+		{"response limit", chunkedServer.URL, withResponseLimit, "Response from the NetXMS server is too large",
+			func(err error) bool { return errors.Is(err, httpclient.ErrResponseBodyTooLarge) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ds, _ := newTestDatasource(t, tt.serverURL)
+			_, err := ds.client.do(tt.ctx(t), http.MethodGet, "v1/server-info", nil)
+			if err == nil || err.Error() != tt.wantMessage {
+				t.Fatalf("expected %q, got %v", tt.wantMessage, err)
+			}
+			if !tt.wantCause(err) {
+				t.Errorf("unexpected cause: %v", errors.Unwrap(err))
+			}
+		})
+	}
+}
+
+func TestTLSHandshakeTimeoutIsReported(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		<-done
+	}()
+
+	instance, err := NewDatasource(t.Context(), backend.DataSourceInstanceSettings{
+		Type:     "radensolutions-netxms-datasource",
+		JSONData: []byte(`{"serverAddress": "https://` + listener.Addr().String() + `", "httpTLSHandshakeTimeout": 1}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = instance.(*NetXMSDatasource).client.do(t.Context(), http.MethodGet, "v1/server-info", nil)
+	if err == nil || err.Error() != "Request timed out" {
+		t.Fatalf("expected %q, got %v", "Request timed out", err)
+	}
+}
+
+func TestNewDatasourceHTTPTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		jsonData string
+		want     time.Duration
+	}{
+		{"default", `{"serverAddress": "http://localhost"}`, 30 * time.Second},
+		{"configured", `{"serverAddress": "http://localhost", "timeout": 5}`, 5 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance, err := NewDatasource(context.Background(), backend.DataSourceInstanceSettings{JSONData: []byte(tt.jsonData)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := instance.(*NetXMSDatasource).client.http.Timeout; got != tt.want {
+				t.Errorf("expected timeout %v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
 var queryTypeModels = []struct {
 	queryType string
 	model     map[string]any
@@ -162,9 +296,8 @@ func TestQueryConnectFailureIsReported(t *testing.T) {
 			if resp.Status != backend.StatusBadRequest {
 				t.Errorf("expected status %v, got %v", backend.StatusBadRequest, resp.Status)
 			}
-			if resp.Error == nil || !strings.HasPrefix(resp.Error.Error(), "failed to connect to server: ") ||
-				!strings.Contains(resp.Error.Error(), "connection refused") {
-				t.Errorf("expected connect error, got %v", resp.Error)
+			if resp.Error == nil || resp.Error.Error() != msgConnectFailed {
+				t.Errorf("expected %q, got %v", msgConnectFailed, resp.Error)
 			}
 		})
 	}

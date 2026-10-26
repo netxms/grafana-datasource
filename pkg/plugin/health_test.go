@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -79,12 +78,12 @@ func TestCheckHealthReportsRequestFailures(t *testing.T) {
 	defer upstream.Close()
 
 	tests := []struct {
-		name       string
-		serverURL  string
-		wantPrefix string
+		name        string
+		serverURL   string
+		wantMessage string
 	}{
 		{"upstream status", upstream.URL, "Server returned status code: 503 (503 Service Unavailable)"},
-		{"connect failure", closedServerURL(t), "failed to connect to server: "},
+		{"connect failure", closedServerURL(t), msgConnectFailed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,8 +94,8 @@ func TestCheckHealthReportsRequestFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if res.Status != backend.HealthStatusError || !strings.HasPrefix(res.Message, tt.wantPrefix) {
-				t.Errorf("expected error starting with %q, got %v %q", tt.wantPrefix, res.Status, res.Message)
+			if res.Status != backend.HealthStatusError || res.Message != tt.wantMessage {
+				t.Errorf("expected error %q, got %v %q", tt.wantMessage, res.Status, res.Message)
 			}
 		})
 	}

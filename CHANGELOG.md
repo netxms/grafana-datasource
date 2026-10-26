@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changes
+- Connection errors show a short message such as "Unable to connect to the NetXMS server" or "Request timed out" instead of the full error with the server address; the full error is in the Grafana server log
+- Requests follow Grafana's response size limit setting, and the default request timeout is 30 seconds instead of 10
+- The Query parameters field of object queries uses the standard Grafana text area and fills the editor width
+
 ## [2.1.0] - 2026-10-21
 
 ### Breaking Changes

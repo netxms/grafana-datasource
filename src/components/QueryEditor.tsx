@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Alert, InlineField, Stack, Combobox, Select } from '@grafana/ui';
+import { Alert, InlineField, Stack, Combobox, Select, TextArea } from '@grafana/ui';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
 import { NetxmsSourceOptions as NetXMSDataSourceOptions, NetXMSQuery, ObjectToIdList } from '../types';
@@ -241,18 +241,19 @@ export function QueryEditor({ query, onChange, onRunQuery, datasource }: Props) 
             label="Query parameters"
             labelWidth={16}
             tooltip={'Input field values for the query as a JSON object, e.g. {"name": "value"}'}
+            grow
           >
             {/* Runs on blur rather than per keystroke: each run is a server-side NXSL query */}
-            <textarea
+            <TextArea
               value={query.queryParameters || ''}
-              onChange={(e) => onChange({ ...query, queryParameters: e.target.value })}
+              onChange={(e) => onChange({ ...query, queryParameters: e.currentTarget.value })}
               onBlur={() => {
                 if (datasource.filterQuery(query)) {
                   onRunQuery();
                 }
               }}
               placeholder='{"name": "value"}'
-              style={{ width: '32em', height: '5em' }}
+              rows={4}
             />
           </InlineField>
         </>

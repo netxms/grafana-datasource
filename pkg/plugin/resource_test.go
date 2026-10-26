@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -164,8 +163,8 @@ func TestResourceConnectFailureIsReported(t *testing.T) {
 	if status != http.StatusBadGateway {
 		t.Errorf("expected 502, got %d", status)
 	}
-	if !strings.HasPrefix(reason, "failed to connect to server: ") || !strings.Contains(reason, "connection refused") {
-		t.Errorf("expected connect error, got %q", reason)
+	if reason != msgConnectFailed {
+		t.Errorf("expected %q, got %q", msgConnectFailed, reason)
 	}
 }
 
