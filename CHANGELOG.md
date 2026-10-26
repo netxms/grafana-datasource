@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2.1.1] - 2026-10-26
 
 ### Changes
 - Connection errors show a short message such as "Unable to connect to the NetXMS server" or "Request timed out" instead of the full error with the server address; the full error is in the Grafana server log
