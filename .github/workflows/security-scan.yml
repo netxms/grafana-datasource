@@ -16,7 +16,9 @@ on:
       - go.mod
       - go.sum
       - .github/osv-scanner-validator.toml
+      - .github/plugin-validator-scan.yaml
       - .github/workflows/build-plugin.yml
+      - .github/workflows/security-scan.yml
 
 permissions:
   contents: read
@@ -26,3 +28,4 @@ jobs:
     uses: ./.github/workflows/build-plugin.yml
     with:
       sign: false
+      validator-config: .github/plugin-validator-scan.yaml

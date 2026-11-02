@@ -12,6 +12,10 @@ on:
         description: Sign the plugin with GRAFANA_ACCESS_POLICY_TOKEN
         type: boolean
         default: false
+      validator-config:
+        description: Path to a plugin validator config file; the validator's defaults apply if empty
+        type: string
+        default: ''
     secrets:
       GRAFANA_ACCESS_POLICY_TOKEN:
         required: false
@@ -135,7 +139,8 @@ jobs:
         env:
           PLUGIN_ARCHIVE: ${{ steps.metadata.outputs.archive }}
           PLUGIN_VALIDATOR_OSV_CONFIG: ${{ github.workspace }}/.github/osv-scanner-validator.toml
-        run: npx -y @grafana/plugin-validator@0.51.1 -sourceCodeUri file://./ "$PLUGIN_ARCHIVE"
+          VALIDATOR_CONFIG: ${{ inputs.validator-config }}
+        run: npx -y @grafana/plugin-validator@0.51.1 ${VALIDATOR_CONFIG:+-config "$VALIDATOR_CONFIG"} -sourceCodeUri file://./ "$PLUGIN_ARCHIVE"
 
       - name: Upload package
         uses: actions/upload-artifact@v7

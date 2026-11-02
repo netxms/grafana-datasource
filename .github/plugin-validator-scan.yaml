@@ -1,0 +1,17 @@
+# Plugin validator config for security-scan.yml, passed via -config.
+#
+# The scan builds whatever version is on main, which equals the published version from
+# the moment a release reaches the catalog, so the "newer than published" rule would fail
+# every scan until the next version bump. The rule stays on for releases, which run the
+# validator without this file.
+global:
+  enabled: true
+  severity: warning
+  jsonOutput: false
+  reportAll: false
+
+analyzers:
+  version:
+    rules:
+      wrong-plugin-version:
+        enabled: false
