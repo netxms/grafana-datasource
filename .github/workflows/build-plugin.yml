@@ -13,7 +13,8 @@ on:
         type: boolean
         default: false
       validator-config:
-        description: Path to a plugin validator config file; the validator's defaults apply if empty
+        description: Path to a plugin validator config file; the validator's defaults
+          apply if empty
         type: string
         default: ''
     secrets:
@@ -86,6 +87,9 @@ jobs:
       - name: Check Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
+      - name: Check Go code with gosec
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.30.0 -severity high ./...
+
       - name: Build backend
         uses: magefile/mage-action@v4
         with:
@@ -140,7 +144,8 @@ jobs:
           PLUGIN_ARCHIVE: ${{ steps.metadata.outputs.archive }}
           PLUGIN_VALIDATOR_OSV_CONFIG: ${{ github.workspace }}/.github/osv-scanner-validator.toml
           VALIDATOR_CONFIG: ${{ inputs.validator-config }}
-        run: npx -y @grafana/plugin-validator@0.51.1 ${VALIDATOR_CONFIG:+-config "$VALIDATOR_CONFIG"} -sourceCodeUri file://./ "$PLUGIN_ARCHIVE"
+        run: npx -y @grafana/plugin-validator@0.51.1 ${VALIDATOR_CONFIG:+-config
+          "$VALIDATOR_CONFIG"} -sourceCodeUri file://./ "$PLUGIN_ARCHIVE"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
