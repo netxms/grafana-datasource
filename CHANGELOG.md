@@ -2,10 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2.1.2] - 2026-11-16
 
 ### Security
-- Backend built with Go 1.26.11, fixing a vulnerability in the Go standard library HTTP client and server
+- Backend built with Go 1.26.11, fixing a vulnerability in the Go standard library HTTP client and server; updated the Grafana plugin SDK, Grafana packages and other dependencies
 
 ## [2.1.1] - 2026-10-26
 
