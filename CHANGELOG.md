@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Security
+- Backend built with Go 1.26.11, fixing a vulnerability in the Go standard library HTTP client and server
+
 ## [2.1.1] - 2026-10-26
 
 ### Changes
