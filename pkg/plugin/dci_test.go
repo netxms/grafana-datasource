@@ -387,3 +387,23 @@ func TestDciValuesRequestIsAuthorizedGetWithoutContentType(t *testing.T) {
 		t.Errorf("expected authorized GET without Content-Type, got %s, %q, %q", gotMethod, gotAuth, gotContentType)
 	}
 }
+
+func TestDciValuesRequestURLKeepsBasePathAndQuery(t *testing.T) {
+	var gotURI string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURI = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values": []}`))
+	}))
+	defer server.Close()
+
+	ds, settings := newTestDatasource(t, server.URL+"/netxms/")
+	timeRange := backend.TimeRange{From: time.Unix(100, 0), To: time.Unix(200, 0)}
+	if resp := runDciQuery(t, ds, settings, timeRange, 50); resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+	want := "/netxms/v1/objects/1/data-collection/2/history?timeFrom=100&timeTo=200&maxDataPoints=50"
+	if gotURI != want {
+		t.Errorf("request URI = %q, want %q", gotURI, want)
+	}
+}

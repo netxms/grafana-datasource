@@ -118,11 +118,14 @@ func (c *netxmsClient) do(ctx context.Context, method, path string, body any) ([
 		reqBody = bytes.NewReader(bodyBytes)
 	}
 
-	request, err := http.NewRequestWithContext(ctx, method, joinURL(c.baseURL, path), reqBody)
+	request, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.baseURL, "/")+"/", reqBody)
 	if err != nil {
 		log.DefaultLogger.Error("Invalid NetXMS server address", "error", err)
 		return nil, &requestError{message: "Invalid server address", cause: err}
 	}
+	apiPath, rawQuery, _ := strings.Cut(path, "?")
+	request.URL.Path += strings.TrimLeft(apiPath, "/")
+	request.URL.RawQuery = rawQuery
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -533,16 +536,17 @@ func (ds *NetXMSDatasource) handleObjectQueryObjects(rw http.ResponseWriter, req
 }
 
 func (ds *NetXMSDatasource) handleDciList(rw http.ResponseWriter, req *http.Request) {
-	objectID := req.URL.Query().Get("objectId")
-	if objectID == "" {
+	objectIDParam := req.URL.Query().Get("objectId")
+	if objectIDParam == "" {
 		writeJSONError(rw, http.StatusBadRequest, "missing objectId parameter")
 		return
 	}
-	if _, err := strconv.ParseInt(objectID, 10, 64); err != nil {
+	objectID, err := strconv.ParseInt(objectIDParam, 10, 64)
+	if err != nil {
 		writeJSONError(rw, http.StatusBadRequest, "objectId must be numeric")
 		return
 	}
-	path := fmt.Sprintf("/v1/grafana/objects/%s/dci-list", objectID)
+	path := fmt.Sprintf("/v1/grafana/objects/%d/dci-list", objectID)
 	ds.handleQuery(path, rw, req)
 }
 
@@ -555,11 +559,13 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 			continue
 		}
 
-		if _, err := strconv.ParseInt(qm.SourceObjectId, 10, 64); err != nil {
+		sourceObjectID, err := strconv.ParseInt(qm.SourceObjectId, 10, 64)
+		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, "sourceObjectId must be numeric")
 			continue
 		}
-		if _, err := strconv.ParseInt(qm.DciId, 10, 64); err != nil {
+		dciID, err := strconv.ParseInt(qm.DciId, 10, 64)
+		if err != nil {
 			response.Responses[q.RefID] = backend.ErrDataResponse(backend.StatusBadRequest, "dciId must be numeric")
 			continue
 		}
@@ -567,8 +573,8 @@ func (ds *NetXMSDatasource) handleDciValues(ctx context.Context, req *backend.Qu
 		timeFrom := q.TimeRange.From.Unix()
 		timeTo := q.TimeRange.To.Unix()
 
-		path := fmt.Sprintf("v1/objects/%s/data-collection/%s/history?timeFrom=%d&timeTo=%d",
-			qm.SourceObjectId, qm.DciId, timeFrom, timeTo)
+		path := fmt.Sprintf("v1/objects/%d/data-collection/%d/history?timeFrom=%d&timeTo=%d",
+			sourceObjectID, dciID, timeFrom, timeTo)
 		if q.MaxDataPoints > 0 {
 			path += fmt.Sprintf("&maxDataPoints=%d", q.MaxDataPoints)
 		}
@@ -1102,10 +1108,4 @@ func writeJSONResponse(rw http.ResponseWriter, body []byte) {
 	rw.Header().Add("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
 	_, _ = rw.Write(body)
-}
-
-func joinURL(base, path string) string {
-	base = strings.TrimRight(base, "/")
-	path = strings.TrimLeft(path, "/")
-	return base + "/" + path
 }
